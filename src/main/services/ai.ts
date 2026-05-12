@@ -85,6 +85,8 @@ export interface AiService {
   listConversations(): ConversationSummary[]
   createConversation(input: { name?: string; paperIds: string[] }): ConversationDetail
   getConversation(id: string): ConversationDetail | null
+  renameConversation(input: { conversationId: string; name: string }): ConversationDetail | null
+  deleteConversation(conversationId: string): boolean
   updateConversationPapers(input: { conversationId: string; paperIds: string[] }): ConversationDetail | null
   sendMessage(input: { conversationId: string; content: string }): Promise<ConversationDetail>
   exportConversation(conversationId: string): Promise<ExportConversationResult | null>
@@ -154,6 +156,8 @@ export function createAiService(database: DatabaseContext): AiService {
         updated_at = @updated_at
     WHERE id = @id
   `)
+
+  const deleteConversationStmt = database.db.prepare(`DELETE FROM conversations WHERE id = ?`)
 
   const listMessagesStmt = database.db.prepare(`
     SELECT id, conversation_id, role, content, created_at
@@ -234,6 +238,27 @@ export function createAiService(database: DatabaseContext): AiService {
     },
     getConversation(id) {
       return getConversationDetail(id)
+    },
+    renameConversation(input) {
+      const current = getConversationStmt.get(input.conversationId) as ConversationRow | undefined
+      if (!current) return null
+      const trimmed = input.name.trim()
+      if (!trimmed) {
+        throw new Error('会话名称不能为空')
+      }
+      updateConversationStmt.run({
+        id: current.id,
+        name: trimmed,
+        paper_ids: current.paper_ids,
+        updated_at: Date.now()
+      })
+      return getConversationDetail(input.conversationId)
+    },
+    deleteConversation(conversationId) {
+      const current = getConversationStmt.get(conversationId) as ConversationRow | undefined
+      if (!current) return false
+      deleteConversationStmt.run(conversationId)
+      return true
     },
     updateConversationPapers(input) {
       const current = getConversationStmt.get(input.conversationId) as ConversationRow | undefined

@@ -47,6 +47,10 @@ const api = {
   createConversation: (input: { name?: string; paperIds: string[] }) =>
     ipcRenderer.invoke('ai:create-conversation', input) as Promise<ConversationDetail>,
   getConversation: (id: string) => ipcRenderer.invoke('ai:get-conversation', id) as Promise<ConversationDetail | null>,
+  renameConversation: (input: { conversationId: string; name: string }) =>
+    ipcRenderer.invoke('ai:rename-conversation', input) as Promise<ConversationDetail | null>,
+  deleteConversation: (conversationId: string) =>
+    ipcRenderer.invoke('ai:delete-conversation', conversationId) as Promise<boolean>,
   updateConversationPapers: (input: { conversationId: string; paperIds: string[] }) =>
     ipcRenderer.invoke('ai:update-conversation-papers', input) as Promise<ConversationDetail | null>,
   sendAiMessage: (input: { conversationId: string; content: string }) =>

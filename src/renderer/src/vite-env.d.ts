@@ -49,6 +49,8 @@ declare global {
       listConversations: () => Promise<ConversationSummary[]>
       createConversation: (input: { name?: string; paperIds: string[] }) => Promise<ConversationDetail>
       getConversation: (id: string) => Promise<ConversationDetail | null>
+      renameConversation: (input: { conversationId: string; name: string }) => Promise<ConversationDetail | null>
+      deleteConversation: (conversationId: string) => Promise<boolean>
       updateConversationPapers: (input: {
         conversationId: string
         paperIds: string[]

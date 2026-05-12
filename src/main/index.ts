@@ -101,6 +101,10 @@ app.whenReady().then(() => {
     ai.createConversation(input)
   )
   ipcMain.handle('ai:get-conversation', async (_event, id: string) => ai.getConversation(id))
+  ipcMain.handle('ai:rename-conversation', async (_event, input: { conversationId: string; name: string }) =>
+    ai.renameConversation(input)
+  )
+  ipcMain.handle('ai:delete-conversation', async (_event, conversationId: string) => ai.deleteConversation(conversationId))
   ipcMain.handle('ai:update-conversation-papers', async (_event, input: { conversationId: string; paperIds: string[] }) =>
     ai.updateConversationPapers(input)
   )

@@ -29,7 +29,22 @@ import type {
 type MainView = 'library' | 'settings'
 type LibraryNav = 'all' | 'recent' | 'tags'
 
+type ConversationContextMenuState = { x: number; y: number; conversationId: string }
+
 const RECENT_MS = 14 * 24 * 60 * 60 * 1000
+const CONV_MENU_W = 168
+const CONV_MENU_H = 88
+
+function clampConvMenuPosition(x: number, y: number): { x: number; y: number } {
+  const pad = 8
+  let nx = x
+  let ny = y
+  if (nx + CONV_MENU_W > window.innerWidth - pad) nx = window.innerWidth - CONV_MENU_W - pad
+  if (ny + CONV_MENU_H > window.innerHeight - pad) ny = window.innerHeight - CONV_MENU_H - pad
+  if (nx < pad) nx = pad
+  if (ny < pad) ny = pad
+  return { x: nx, y: ny }
+}
 
 const fileTypeOptions = [
   { label: '全部类型', value: 'all' },
@@ -110,6 +125,9 @@ export function App() {
   const [notebookPaneOpen, setNotebookPaneOpen] = useState(true)
 
   const tagsSectionRef = useRef<HTMLElement | null>(null)
+  const convContextMenuRef = useRef<HTMLDivElement | null>(null)
+  const renameTitleInputRef = useRef<HTMLInputElement | null>(null)
+  const renameSessionOpenedForIdRef = useRef<string | null>(null)
 
   const [bootstrap, setBootstrap] = useState<BootstrapData | null>(null)
   const [papers, setPapers] = useState<PaperSummary[]>([])
@@ -147,6 +165,8 @@ export function App() {
   const [isSendingMessage, setIsSendingMessage] = useState(false)
   const [isSavingSummary, setIsSavingSummary] = useState(false)
   const [isExportingConversation, setIsExportingConversation] = useState(false)
+  const [convContextMenu, setConvContextMenu] = useState<ConversationContextMenuState | null>(null)
+  const [renameDialog, setRenameDialog] = useState<{ conversationId: string; title: string } | null>(null)
 
   const deferredKeyword = useDeferredValue(searchTerm)
   const activeQuery = useMemo<LibraryQuery>(
@@ -179,6 +199,32 @@ export function App() {
       setSelectedPaperId(displayedPapers[0]?.id ?? null)
     }
   }, [libraryNav, displayedPapers, selectedPaperId])
+
+  useEffect(() => {
+    if (!convContextMenu) return
+    const onMouseDown = (event: MouseEvent) => {
+      if (convContextMenuRef.current?.contains(event.target as Node)) return
+      setConvContextMenu(null)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [convContextMenu])
+
+  useEffect(() => {
+    if (!renameDialog) {
+      renameSessionOpenedForIdRef.current = null
+      return
+    }
+    const id = renameDialog.conversationId
+    const isFirstOpenForThisSession = renameSessionOpenedForIdRef.current !== id
+    renameSessionOpenedForIdRef.current = id
+    if (isFirstOpenForThisSession) {
+      requestAnimationFrame(() => {
+        renameTitleInputRef.current?.focus()
+        renameTitleInputRef.current?.select()
+      })
+    }
+  }, [renameDialog])
 
   async function loadWorkspaceChrome() {
     try {
@@ -446,6 +492,67 @@ export function App() {
     setSelectedConversationId(detail.conversation.id)
     setChatPaneOpen(true)
     setStatusMessage('已创建对话')
+  }
+
+  function handleConversationContextMenu(event: React.MouseEvent, conversationId: string) {
+    event.preventDefault()
+    event.stopPropagation()
+    const { x, y } = clampConvMenuPosition(event.clientX, event.clientY)
+    setConvContextMenu({ x, y, conversationId })
+  }
+
+  function openRenameDialog(conversationId: string) {
+    const conv = conversations.find((c) => c.id === conversationId)
+    setConvContextMenu(null)
+    setRenameDialog({ conversationId, title: conv?.name ?? '' })
+  }
+
+  async function handleConfirmRename() {
+    if (!renameDialog) return
+    const title = renameDialog.title.trim()
+    if (!title) {
+      setStatusMessage('会话名称不能为空')
+      return
+    }
+    try {
+      const detail = await window.paperbox.renameConversation({
+        conversationId: renameDialog.conversationId,
+        name: title
+      })
+      setRenameDialog(null)
+      await loadAiChrome()
+      if (detail && selectedConversationId === renameDialog.conversationId) {
+        setConversationDetail(detail)
+      }
+      setStatusMessage('已重命名会话')
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : '重命名失败')
+    }
+  }
+
+  async function handleDeleteConversationById(conversationId: string) {
+    const conv = conversations.find((c) => c.id === conversationId)
+    const ok = window.confirm(
+      conv ? `确定删除会话「${conv.name}」？将同时删除其中的所有消息。` : '确定删除该会话？'
+    )
+    if (!ok) return
+    setConvContextMenu(null)
+    try {
+      const deleted = await window.paperbox.deleteConversation(conversationId)
+      if (!deleted) {
+        setStatusMessage('未找到该会话')
+        await loadAiChrome()
+        return
+      }
+      if (selectedConversationId === conversationId) {
+        setSelectedConversationId(null)
+        setConversationDetail(null)
+      }
+      await loadAiChrome()
+      setStatusMessage('已删除会话')
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : '删除失败')
+    }
   }
 
   async function handleUseCurrentPaperInConversation() {
@@ -1262,9 +1369,11 @@ export function App() {
                 type="button"
                 className={`conv-item ${conversation.id === selectedConversationId ? 'is-selected' : ''}`}
                 onClick={() => {
+                  setConvContextMenu(null)
                   setSelectedConversationId(conversation.id)
                   setChatPaneOpen(true)
                 }}
+                onContextMenu={(event) => handleConversationContextMenu(event, conversation.id)}
               >
                 <MessagesSquare size={16} style={{ flexShrink: 0, opacity: 0.7 }} />
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1352,6 +1461,70 @@ export function App() {
       <aside className={`dock dock-notes ${notebookPaneOpen ? 'is-open' : 'is-closed'}`} aria-hidden={!notebookPaneOpen}>
         {renderNotesDock()}
       </aside>
+
+      {convContextMenu ? (
+        <div
+          ref={convContextMenuRef}
+          className="context-menu"
+          style={{ left: convContextMenu.x, top: convContextMenu.y }}
+          role="menu"
+        >
+          <button
+            type="button"
+            className="context-menu-item"
+            role="menuitem"
+            onClick={() => openRenameDialog(convContextMenu.conversationId)}
+          >
+            重命名
+          </button>
+          <button
+            type="button"
+            className="context-menu-item danger"
+            role="menuitem"
+            onClick={() => void handleDeleteConversationById(convContextMenu.conversationId)}
+          >
+            删除
+          </button>
+        </div>
+      ) : null}
+
+      {renameDialog ? (
+        <div
+          className="modal-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setRenameDialog(null)
+          }}
+        >
+          <div className="rename-modal" role="dialog" aria-labelledby="rename-dialog-title" onMouseDown={(e) => e.stopPropagation()}>
+            <h3 id="rename-dialog-title" className="rename-modal-title">
+              重命名会话
+            </h3>
+            <label className="field-label" htmlFor="rename-conv-input">
+              名称
+            </label>
+            <input
+              id="rename-conv-input"
+              ref={renameTitleInputRef}
+              className="search-input"
+              value={renameDialog.title}
+              onChange={(event) => setRenameDialog((current) => (current ? { ...current, title: event.target.value } : null))}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void handleConfirmRename()
+                if (event.key === 'Escape') setRenameDialog(null)
+              }}
+            />
+            <div className="rename-modal-actions">
+              <button type="button" className="ghost-button" onClick={() => setRenameDialog(null)}>
+                取消
+              </button>
+              <button type="button" className="primary-button" onClick={() => void handleConfirmRename()}>
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
