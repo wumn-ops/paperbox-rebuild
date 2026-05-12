@@ -435,16 +435,34 @@ p {
   font-size: 13px;
 }
 
-/* Library: list + optional detail column */
+/* Library: list + optional detail column — 与侧栏 / dock 一致：单行分割，避免列表与详情各套一层灰框 */
 .library-layout {
   flex: 1;
   min-height: 0;
   display: grid;
   grid-template-columns: 1fr;
-  gap: 16px;
+  gap: 0;
+  align-items: stretch;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
 }
 
-/* .library-layout.has-detail-open：仅作标记，列宽由内联 style 与下方 @media 控制 */
+.library-layout .panel.list-panel,
+.library-layout .panel.detail-panel {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.library-layout.has-detail-open > .list-panel {
+  border-right: 1px solid var(--border);
+}
+
+/* .library-layout.has-detail-open：列宽由内联 style 与下方 @media 控制 */
 
 .list-panel-hint {
   margin: 8px 0 0;
@@ -472,6 +490,7 @@ p {
 
 .library-panel-header {
   gap: 14px;
+  padding: 14px 18px 12px;
 }
 
 .library-workbench-top {
@@ -503,7 +522,7 @@ p {
 
 .library-list-heading h3 {
   margin: 8px 0 0;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -1248,7 +1267,12 @@ button.paper-item {
     display: none;
   }
 
-  .detail-panel {
+  .library-layout.has-detail-open > .list-panel {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .library-layout.has-detail-open .detail-panel {
     max-height: 480px;
   }
 }
