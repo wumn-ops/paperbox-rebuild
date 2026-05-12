@@ -9,7 +9,8 @@ import {
   PanelRightOpen,
   Settings2,
   Tag,
-  FolderPlus
+  FolderPlus,
+  X
 } from 'lucide-react'
 import type {
   AiPreset,
@@ -154,6 +155,7 @@ export function App() {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [fileTypeFilter, setFileTypeFilter] = useState('all')
+  const [paperDetailOpen, setPaperDetailOpen] = useState(false)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
 
   const [aiSettings, setAiSettings] = useState<AiSettings>(emptyAiSettings)
@@ -192,11 +194,17 @@ export function App() {
     [aiSettings]
   )
 
+  const selectedPaperTitleHint = useMemo(
+    () => selectedPaper?.title ?? papers.find((p) => p.id === selectedPaperId)?.title ?? null,
+    [selectedPaper, papers, selectedPaperId]
+  )
+
   useEffect(() => {
     if (libraryNav !== 'recent') return
     if (!selectedPaperId) return
     if (!displayedPapers.some((p) => p.id === selectedPaperId)) {
-      setSelectedPaperId(displayedPapers[0]?.id ?? null)
+      setSelectedPaperId(null)
+      setPaperDetailOpen(false)
     }
   }, [libraryNav, displayedPapers, selectedPaperId])
 
@@ -259,12 +267,17 @@ export function App() {
     try {
       const nextPapers = await window.paperbox.queryPapers(query)
       setPapers(nextPapers)
-      const fallbackId = nextPapers[0]?.id ?? null
-      const targetId =
-        nextSelectedPaperId && nextPapers.some((paper) => paper.id === nextSelectedPaperId)
-          ? nextSelectedPaperId
-          : fallbackId
-      setSelectedPaperId(targetId)
+      setSelectedPaperId((prev) => {
+        if (nextSelectedPaperId !== undefined) {
+          return nextSelectedPaperId && nextPapers.some((paper) => paper.id === nextSelectedPaperId)
+            ? nextSelectedPaperId
+            : null
+        }
+        if (prev !== null && nextPapers.some((paper) => paper.id === prev)) {
+          return prev
+        }
+        return null
+      })
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '加载文献列表失败')
     } finally {
@@ -321,6 +334,14 @@ export function App() {
       return
     }
 
+    void loadNotes(selectedPaperId, selectedNoteId)
+
+    if (!paperDetailOpen) {
+      setSelectedPaper(null)
+      setIsLoadingDetail(false)
+      return
+    }
+
     setIsLoadingDetail(true)
     window.paperbox
       .getPaperDetail(selectedPaperId)
@@ -333,9 +354,7 @@ export function App() {
       .finally(() => {
         setIsLoadingDetail(false)
       })
-
-    void loadNotes(selectedPaperId, selectedNoteId)
-  }, [selectedPaperId])
+  }, [selectedPaperId, paperDetailOpen])
 
   useEffect(() => {
     setEditingNoteTitle(activeNote?.title ?? '')
@@ -374,6 +393,9 @@ export function App() {
       if (!result.canceled) {
         const importedPaperId = result.imported[0]?.id ?? null
         await loadLibrary(activeQuery, importedPaperId)
+        if (importedPaperId) {
+          setPaperDetailOpen(true)
+        }
       }
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '导入失败')
@@ -411,7 +433,7 @@ export function App() {
     await Promise.all([
       loadWorkspaceChrome(),
       loadLibrary(activeQuery, selectedPaperId),
-      window.paperbox.getPaperDetail(selectedPaperId).then(setSelectedPaper)
+      ...(paperDetailOpen ? [window.paperbox.getPaperDetail(selectedPaperId).then(setSelectedPaper)] : [])
     ])
     setStatusMessage('已更新文件夹')
   }
@@ -430,7 +452,7 @@ export function App() {
     await Promise.all([
       loadWorkspaceChrome(),
       loadLibrary(activeQuery, selectedPaperId),
-      window.paperbox.getPaperDetail(selectedPaperId).then(setSelectedPaper)
+      ...(paperDetailOpen ? [window.paperbox.getPaperDetail(selectedPaperId).then(setSelectedPaper)] : [])
     ])
     setStatusMessage('已更新标签')
   }
@@ -475,7 +497,7 @@ export function App() {
     const paperIds = selectedPaperId ? [selectedPaperId] : []
     const detail = await window.paperbox.createConversation({
       paperIds,
-      name: selectedPaper ? `对话：${selectedPaper.title}` : '新对话'
+      name: selectedPaperTitleHint ? `对话：${selectedPaperTitleHint}` : '新对话'
     })
     await loadAiChrome()
     setSelectedConversationId(detail.conversation.id)
@@ -670,13 +692,18 @@ export function App() {
   }, [displayedPapers.length, libraryNav, searchTerm])
 
   function renderLibraryMain() {
+    const showDetailColumn = paperDetailOpen && Boolean(selectedPaperId)
+
     return (
-      <section className="library-layout">
+      <section className={`library-layout ${showDetailColumn ? 'has-detail-open' : ''}`}>
         <div className="panel list-panel">
           <div className="panel-header">
             <div>
               <h3>文献列表</h3>
               <p className="muted">{librarySubtitle}</p>
+              {!showDetailColumn && displayedPapers.length > 0 ? (
+                <p className="muted list-panel-hint">点击条目在右侧展开文献详情；展开后可点击「关闭详情」收回。</p>
+              ) : null}
             </div>
             <div className="filter-row">
               <input
@@ -711,7 +738,10 @@ export function App() {
               <button
                 key={paper.id}
                 className={`paper-item ${paper.id === selectedPaperId ? 'is-selected' : ''}`}
-                onClick={() => setSelectedPaperId(paper.id)}
+                onClick={() => {
+                  setSelectedPaperId(paper.id)
+                  setPaperDetailOpen(true)
+                }}
               >
                 <div className="paper-item-top">
                   <span className="file-badge">{paper.fileType.toUpperCase()}</span>
@@ -725,22 +755,32 @@ export function App() {
           </div>
         </div>
 
-        <div className="panel detail-panel">
-          {isLoadingDetail ? <p className="empty-state">加载详情…</p> : null}
-          {!isLoadingDetail && !selectedPaper ? (
-            <div className="empty-detail">
-              <h3>选择一篇文献</h3>
-              <p>此处展示元数据、文件夹与标签、正文预览，并可发起基于该文献的对话。</p>
-            </div>
-          ) : null}
-          {!isLoadingDetail && selectedPaper ? (
+        {showDetailColumn ? (
+          <div className="panel detail-panel">
+            {isLoadingDetail ? <p className="empty-state">加载详情…</p> : null}
+            {!isLoadingDetail && !selectedPaper ? (
+              <div className="empty-detail">
+                <h3>加载中</h3>
+                <p>正在拉取文献详情…</p>
+              </div>
+            ) : null}
+            {!isLoadingDetail && selectedPaper ? (
             <>
               <div className="detail-header">
                 <div>
                   <p className="eyebrow">文献详情</p>
                   <h3>{selectedPaper.title}</h3>
                 </div>
-                <div className="button-row">
+                <div className="button-row detail-header-actions">
+                  <button
+                    type="button"
+                    className="icon-close-detail"
+                    title="关闭详情"
+                    aria-label="关闭详情"
+                    onClick={() => setPaperDetailOpen(false)}
+                  >
+                    <X size={20} />
+                  </button>
                   <button
                     className="ghost-button"
                     onClick={() => {
@@ -837,8 +877,9 @@ export function App() {
                 </pre>
               </section>
             </>
-          ) : null}
-        </div>
+            ) : null}
+          </div>
+        ) : null}
       </section>
     )
   }
@@ -955,7 +996,7 @@ export function App() {
         <div className="dock-header">
           <h3>笔记本</h3>
           <p className="muted">
-            {selectedPaper ? `当前文献：${selectedPaper.title}` : '未选中文献时显示全局笔记'}
+            {selectedPaperTitleHint ? `当前文献：${selectedPaperTitleHint}` : '未选中文献时显示全局笔记'}
           </p>
         </div>
         <div className="note-dock-toolbar">

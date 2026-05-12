@@ -416,13 +416,23 @@ p {
   font-size: 13px;
 }
 
-/* Library: list + detail */
+/* Library: list + optional detail column */
 .library-layout {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 16px;
+}
+
+.library-layout.has-detail-open {
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+}
+
+.list-panel-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .panel {
@@ -566,6 +576,29 @@ p {
   justify-content: space-between;
   gap: 14px;
   align-items: flex-start;
+}
+
+.detail-header-actions {
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.icon-close-detail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-secondary);
+}
+
+.icon-close-detail:hover {
+  background: var(--bg-subtle);
+  color: var(--text);
 }
 
 .detail-header h3 {
@@ -1072,7 +1105,7 @@ p {
 }
 
 @media (max-width: 1100px) {
-  .library-layout {
+  .library-layout.has-detail-open {
     grid-template-columns: 1fr;
   }
 
