@@ -75,7 +75,15 @@ function loadLayoutWidths(): LayoutWidths {
   }
 }
 
-type ConversationContextMenuState = { x: number; y: number; conversationId: string }
+type AppContextMenuState =
+  | { kind: 'conversation'; x: number; y: number; conversationId: string }
+  | { kind: 'folder'; x: number; y: number; folderId: string }
+  | { kind: 'tag'; x: number; y: number; tagId: string }
+
+type RenameDialogState =
+  | { kind: 'conversation'; conversationId: string; title: string }
+  | { kind: 'folder'; folderId: string; title: string }
+  | { kind: 'tag'; tagId: string; title: string }
 
 const RECENT_MS = 14 * 24 * 60 * 60 * 1000
 const CONV_MENU_W = 168
@@ -171,9 +179,9 @@ export function App() {
   const [notebookPaneOpen, setNotebookPaneOpen] = useState(true)
 
   const tagsSectionRef = useRef<HTMLElement | null>(null)
-  const convContextMenuRef = useRef<HTMLDivElement | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement | null>(null)
   const renameTitleInputRef = useRef<HTMLInputElement | null>(null)
-  const renameSessionOpenedForIdRef = useRef<string | null>(null)
+  const renameDialogFocusKeyRef = useRef<string | null>(null)
   const layoutDragRef = useRef<{ kind: SplitterKind; lastX: number } | null>(null)
 
   const [layoutWidths, setLayoutWidths] = useState<LayoutWidths>(loadLayoutWidths)
@@ -215,8 +223,8 @@ export function App() {
   const [isSendingMessage, setIsSendingMessage] = useState(false)
   const [isSavingSummary, setIsSavingSummary] = useState(false)
   const [isExportingConversation, setIsExportingConversation] = useState(false)
-  const [convContextMenu, setConvContextMenu] = useState<ConversationContextMenuState | null>(null)
-  const [renameDialog, setRenameDialog] = useState<{ conversationId: string; title: string } | null>(null)
+  const [contextMenu, setContextMenu] = useState<AppContextMenuState | null>(null)
+  const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
 
   const deferredKeyword = useDeferredValue(searchTerm)
   const activeQuery = useMemo<LibraryQuery>(
@@ -257,24 +265,29 @@ export function App() {
   }, [libraryNav, displayedPapers, selectedPaperId])
 
   useEffect(() => {
-    if (!convContextMenu) return
+    if (!contextMenu) return
     const onMouseDown = (event: MouseEvent) => {
-      if (convContextMenuRef.current?.contains(event.target as Node)) return
-      setConvContextMenu(null)
+      if (contextMenuRef.current?.contains(event.target as Node)) return
+      setContextMenu(null)
     }
     document.addEventListener('mousedown', onMouseDown)
     return () => document.removeEventListener('mousedown', onMouseDown)
-  }, [convContextMenu])
+  }, [contextMenu])
 
   useEffect(() => {
     if (!renameDialog) {
-      renameSessionOpenedForIdRef.current = null
+      renameDialogFocusKeyRef.current = null
       return
     }
-    const id = renameDialog.conversationId
-    const isFirstOpenForThisSession = renameSessionOpenedForIdRef.current !== id
-    renameSessionOpenedForIdRef.current = id
-    if (isFirstOpenForThisSession) {
+    const key =
+      renameDialog.kind === 'conversation'
+        ? `c:${renameDialog.conversationId}`
+        : renameDialog.kind === 'folder'
+          ? `f:${renameDialog.folderId}`
+          : `t:${renameDialog.tagId}`
+    const isFirstOpen = renameDialogFocusKeyRef.current !== key
+    renameDialogFocusKeyRef.current = key
+    if (isFirstOpen) {
       requestAnimationFrame(() => {
         renameTitleInputRef.current?.focus()
         renameTitleInputRef.current?.select()
@@ -627,33 +640,91 @@ export function App() {
     event.preventDefault()
     event.stopPropagation()
     const { x, y } = clampConvMenuPosition(event.clientX, event.clientY)
-    setConvContextMenu({ x, y, conversationId })
+    setContextMenu({ kind: 'conversation', x, y, conversationId })
   }
 
-  function openRenameDialog(conversationId: string) {
+  function handleFolderContextMenu(event: React.MouseEvent, folderId: string) {
+    event.preventDefault()
+    event.stopPropagation()
+    const { x, y } = clampConvMenuPosition(event.clientX, event.clientY)
+    setContextMenu({ kind: 'folder', x, y, folderId })
+  }
+
+  function handleTagContextMenu(event: React.MouseEvent, tagId: string) {
+    event.preventDefault()
+    event.stopPropagation()
+    const { x, y } = clampConvMenuPosition(event.clientX, event.clientY)
+    setContextMenu({ kind: 'tag', x, y, tagId })
+  }
+
+  function openRenameConversation(conversationId: string) {
     const conv = conversations.find((c) => c.id === conversationId)
-    setConvContextMenu(null)
-    setRenameDialog({ conversationId, title: conv?.name ?? '' })
+    setContextMenu(null)
+    setRenameDialog({ kind: 'conversation', conversationId, title: conv?.name ?? '' })
+  }
+
+  function openRenameFolder(folderId: string) {
+    const folder = folders.find((f) => f.id === folderId)
+    setContextMenu(null)
+    setRenameDialog({ kind: 'folder', folderId, title: folder?.name ?? '' })
+  }
+
+  function openRenameTag(tagId: string) {
+    const tag = tags.find((t) => t.id === tagId)
+    setContextMenu(null)
+    setRenameDialog({ kind: 'tag', tagId, title: tag?.name ?? '' })
   }
 
   async function handleConfirmRename() {
     if (!renameDialog) return
     const title = renameDialog.title.trim()
     if (!title) {
-      setStatusMessage('会话名称不能为空')
+      setStatusMessage('名称不能为空')
       return
     }
     try {
-      const detail = await window.paperbox.renameConversation({
-        conversationId: renameDialog.conversationId,
-        name: title
-      })
-      setRenameDialog(null)
-      await loadAiChrome()
-      if (detail && selectedConversationId === renameDialog.conversationId) {
-        setConversationDetail(detail)
+      if (renameDialog.kind === 'conversation') {
+        const conversationId = renameDialog.conversationId
+        const detail = await window.paperbox.renameConversation({ conversationId, name: title })
+        setRenameDialog(null)
+        await loadAiChrome()
+        if (detail && selectedConversationId === conversationId) {
+          setConversationDetail(detail)
+        }
+        setStatusMessage('已重命名会话')
+        return
       }
-      setStatusMessage('已重命名会话')
+      if (renameDialog.kind === 'folder') {
+        const folderId = renameDialog.folderId
+        const updated = await window.paperbox.renameFolder({ folderId, name: title })
+        setRenameDialog(null)
+        if (!updated) {
+          setStatusMessage('未找到该文件夹')
+          await loadWorkspaceChrome()
+          return
+        }
+        await loadWorkspaceChrome()
+        if (selectedPaperId) {
+          const detail = await window.paperbox.getPaperDetail(selectedPaperId)
+          setSelectedPaper(detail)
+        }
+        setStatusMessage('已重命名文件夹')
+        return
+      }
+      const tagId = renameDialog.tagId
+      const updated = await window.paperbox.renameTag({ tagId, name: title })
+      setRenameDialog(null)
+      if (!updated) {
+        setStatusMessage('未找到该标签')
+        await loadWorkspaceChrome()
+        return
+      }
+      await loadWorkspaceChrome()
+      if (selectedPaperId) {
+        const detail = await window.paperbox.getPaperDetail(selectedPaperId)
+        setSelectedPaper(detail)
+      }
+      setStatusMessage('已重命名标签')
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '重命名失败')
     }
@@ -665,7 +736,7 @@ export function App() {
       conv ? `确定删除会话「${conv.name}」？将同时删除其中的所有消息。` : '确定删除该会话？'
     )
     if (!ok) return
-    setConvContextMenu(null)
+    setContextMenu(null)
     try {
       const deleted = await window.paperbox.deleteConversation(conversationId)
       if (!deleted) {
@@ -679,6 +750,72 @@ export function App() {
       }
       await loadAiChrome()
       setStatusMessage('已删除会话')
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : '删除失败')
+    }
+  }
+
+  async function handleDeleteFolderById(folderId: string) {
+    const folder = folders.find((f) => f.id === folderId)
+    const ok = window.confirm(
+      folder
+        ? `确定删除文件夹「${folder.name}」？其中的子文件夹将被一并删除，文献将不再归属该文件夹。`
+        : '确定删除该文件夹？'
+    )
+    if (!ok) return
+    setContextMenu(null)
+    try {
+      const deleted = await window.paperbox.deleteFolder(folderId)
+      if (!deleted) {
+        setStatusMessage('未找到该文件夹')
+        await loadWorkspaceChrome()
+        return
+      }
+      if (selectedFolderId === folderId) setSelectedFolderId('all')
+      await loadWorkspaceChrome()
+      const nextQuery: LibraryQuery = {
+        ...activeQuery,
+        folderId: selectedFolderId === folderId ? 'all' : selectedFolderId,
+        tagId: selectedTagId
+      }
+      await loadLibrary(nextQuery)
+      if (selectedPaperId) {
+        const detail = await window.paperbox.getPaperDetail(selectedPaperId)
+        setSelectedPaper(detail)
+      }
+      setStatusMessage('已删除文件夹')
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : '删除失败')
+    }
+  }
+
+  async function handleDeleteTagById(tagId: string) {
+    const tag = tags.find((t) => t.id === tagId)
+    const ok = window.confirm(
+      tag ? `确定删除标签「${tag.name}」？文献上将移除此标签。` : '确定删除该标签？'
+    )
+    if (!ok) return
+    setContextMenu(null)
+    try {
+      const deleted = await window.paperbox.deleteTag(tagId)
+      if (!deleted) {
+        setStatusMessage('未找到该标签')
+        await loadWorkspaceChrome()
+        return
+      }
+      if (selectedTagId === tagId) setSelectedTagId('all')
+      await loadWorkspaceChrome()
+      const nextQuery: LibraryQuery = {
+        ...activeQuery,
+        tagId: selectedTagId === tagId ? 'all' : selectedTagId,
+        folderId: selectedFolderId
+      }
+      await loadLibrary(nextQuery)
+      if (selectedPaperId) {
+        const detail = await window.paperbox.getPaperDetail(selectedPaperId)
+        setSelectedPaper(detail)
+      }
+      setStatusMessage('已删除标签')
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '删除失败')
     }
@@ -1475,9 +1612,11 @@ export function App() {
                 type="button"
                 className={`filter-chip ${selectedFolderId === folder.id ? 'is-selected' : ''}`}
                 onClick={() => {
+                  setContextMenu(null)
                   setMainView('library')
                   setSelectedFolderId(folder.id)
                 }}
+                onContextMenu={(event) => handleFolderContextMenu(event, folder.id)}
               >
                 <span>{folder.name}</span>
                 <span>{folder.paperCount}</span>
@@ -1533,9 +1672,11 @@ export function App() {
                 type="button"
                 className={`filter-chip ${selectedTagId === tag.id ? 'is-selected' : ''}`}
                 onClick={() => {
+                  setContextMenu(null)
                   setMainView('library')
                   setSelectedTagId(tag.id)
                 }}
+                onContextMenu={(event) => handleTagContextMenu(event, tag.id)}
               >
                 <span className="tag-chip-label">
                   <span className="tag-bullet" style={{ backgroundColor: tag.color }} />
@@ -1560,7 +1701,7 @@ export function App() {
                 type="button"
                 className={`conv-item ${conversation.id === selectedConversationId ? 'is-selected' : ''}`}
                 onClick={() => {
-                  setConvContextMenu(null)
+                  setContextMenu(null)
                   setSelectedConversationId(conversation.id)
                   setChatPaneOpen(true)
                 }}
@@ -1704,18 +1845,22 @@ export function App() {
         {renderNotesDock()}
       </aside>
 
-      {convContextMenu ? (
+      {contextMenu ? (
         <div
-          ref={convContextMenuRef}
+          ref={contextMenuRef}
           className="context-menu"
-          style={{ left: convContextMenu.x, top: convContextMenu.y }}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
           role="menu"
         >
           <button
             type="button"
             className="context-menu-item"
             role="menuitem"
-            onClick={() => openRenameDialog(convContextMenu.conversationId)}
+            onClick={() => {
+              if (contextMenu.kind === 'conversation') openRenameConversation(contextMenu.conversationId)
+              else if (contextMenu.kind === 'folder') openRenameFolder(contextMenu.folderId)
+              else openRenameTag(contextMenu.tagId)
+            }}
           >
             重命名
           </button>
@@ -1723,7 +1868,11 @@ export function App() {
             type="button"
             className="context-menu-item danger"
             role="menuitem"
-            onClick={() => void handleDeleteConversationById(convContextMenu.conversationId)}
+            onClick={() => {
+              if (contextMenu.kind === 'conversation') void handleDeleteConversationById(contextMenu.conversationId)
+              else if (contextMenu.kind === 'folder') void handleDeleteFolderById(contextMenu.folderId)
+              else void handleDeleteTagById(contextMenu.tagId)
+            }}
           >
             删除
           </button>
@@ -1740,13 +1889,17 @@ export function App() {
         >
           <div className="rename-modal" role="dialog" aria-labelledby="rename-dialog-title" onMouseDown={(e) => e.stopPropagation()}>
             <h3 id="rename-dialog-title" className="rename-modal-title">
-              重命名会话
+              {renameDialog.kind === 'conversation'
+                ? '重命名会话'
+                : renameDialog.kind === 'folder'
+                  ? '重命名文件夹'
+                  : '重命名标签'}
             </h3>
-            <label className="field-label" htmlFor="rename-conv-input">
+            <label className="field-label" htmlFor="rename-entity-input">
               名称
             </label>
             <input
-              id="rename-conv-input"
+              id="rename-entity-input"
               ref={renameTitleInputRef}
               className="search-input"
               value={renameDialog.title}

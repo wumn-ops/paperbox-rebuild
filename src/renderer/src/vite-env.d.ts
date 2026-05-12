@@ -24,8 +24,12 @@ declare global {
       saveAiSummary: (input: { paperId: string; summary: string }) => Promise<PaperDetail | null>
       listFolders: () => Promise<FolderItem[]>
       createFolder: (input: { name: string; parentId?: string | null }) => Promise<FolderItem>
+      renameFolder: (input: { folderId: string; name: string }) => Promise<FolderItem | null>
+      deleteFolder: (folderId: string) => Promise<boolean>
       listTags: () => Promise<TagItem[]>
       createTag: (input: { name: string; color?: string }) => Promise<TagItem>
+      renameTag: (input: { tagId: string; name: string }) => Promise<TagItem | null>
+      deleteTag: (tagId: string) => Promise<boolean>
       setPaperFolder: (input: { paperId: string; folderId: string | null }) => Promise<boolean>
       setPaperTags: (input: { paperId: string; tagIds: string[] }) => Promise<boolean>
       listNotes: (paperId: string | null) => Promise<NoteItem[]>

@@ -573,7 +573,8 @@ p {
   max-height: none;
   line-height: 1.2;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  /* border-radius: var(--radius); */
+  border-radius: 4px;
   color: var(--text);
   text-align: left;
   background: var(--bg-subtle);

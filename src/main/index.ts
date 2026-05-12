@@ -64,10 +64,18 @@ app.whenReady().then(() => {
   ipcMain.handle('workspace:create-folder', async (_event, input: { name: string; parentId?: string | null }) =>
     workspace.createFolder(input)
   )
+  ipcMain.handle('workspace:rename-folder', async (_event, input: { folderId: string; name: string }) =>
+    workspace.renameFolder(input)
+  )
+  ipcMain.handle('workspace:delete-folder', async (_event, folderId: string) => workspace.deleteFolder(folderId))
   ipcMain.handle('workspace:list-tags', async () => workspace.listTags())
   ipcMain.handle('workspace:create-tag', async (_event, input: { name: string; color?: string }) =>
     workspace.createTag(input)
   )
+  ipcMain.handle('workspace:rename-tag', async (_event, input: { tagId: string; name: string }) =>
+    workspace.renameTag(input)
+  )
+  ipcMain.handle('workspace:delete-tag', async (_event, tagId: string) => workspace.deleteTag(tagId))
   ipcMain.handle('workspace:set-paper-folder', async (_event, input: { paperId: string; folderId: string | null }) => {
     workspace.setPaperFolder(input)
     return true

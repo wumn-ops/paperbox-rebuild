@@ -34,8 +34,12 @@ interface NoteRow {
 export interface WorkspaceService {
   listFolders(): FolderItem[]
   createFolder(input: { name: string; parentId?: string | null }): FolderItem
+  renameFolder(input: { folderId: string; name: string }): FolderItem | null
+  deleteFolder(folderId: string): boolean
   listTags(): TagItem[]
   createTag(input: { name: string; color?: string }): TagItem
+  renameTag(input: { tagId: string; name: string }): TagItem | null
+  deleteTag(tagId: string): boolean
   setPaperFolder(input: { paperId: string; folderId: string | null }): void
   setPaperTags(input: { paperId: string; tagIds: string[] }): void
   listNotes(paperId: string | null): NoteItem[]
@@ -107,6 +111,11 @@ export function createWorkspaceService(database: DatabaseContext): WorkspaceServ
     WHERE t.id = ?
     GROUP BY t.id
   `)
+
+  const renameFolderStmt = database.db.prepare(`UPDATE folders SET name = @name WHERE id = @id`)
+  const deleteFolderStmt = database.db.prepare(`DELETE FROM folders WHERE id = ?`)
+  const renameTagStmt = database.db.prepare(`UPDATE tags SET name = @name WHERE id = @id`)
+  const deleteTagStmt = database.db.prepare(`DELETE FROM tags WHERE id = ?`)
 
   const clearPaperFoldersStmt = database.db.prepare(`DELETE FROM paper_folders WHERE paper_id = ?`)
   const insertPaperFolderStmt = database.db.prepare(`
@@ -199,6 +208,15 @@ export function createWorkspaceService(database: DatabaseContext): WorkspaceServ
       })
       return mapFolder(getFolderStmt.get(id) as FolderRow)
     },
+    renameFolder(input) {
+      renameFolderStmt.run({ name: input.name, id: input.folderId })
+      const row = getFolderStmt.get(input.folderId) as FolderRow | undefined
+      return row ? mapFolder(row) : null
+    },
+    deleteFolder(folderId) {
+      const result = deleteFolderStmt.run(folderId)
+      return result.changes > 0
+    },
     listTags() {
       return (listTagsStmt.all() as TagRow[]).map(mapTag)
     },
@@ -212,6 +230,15 @@ export function createWorkspaceService(database: DatabaseContext): WorkspaceServ
         created_at: now
       })
       return mapTag(getTagStmt.get(id) as TagRow)
+    },
+    renameTag(input) {
+      renameTagStmt.run({ name: input.name, id: input.tagId })
+      const row = getTagStmt.get(input.tagId) as TagRow | undefined
+      return row ? mapTag(row) : null
+    },
+    deleteTag(tagId) {
+      const result = deleteTagStmt.run(tagId)
+      return result.changes > 0
     },
     setPaperFolder(input) {
       clearPaperFoldersStmt.run(input.paperId)

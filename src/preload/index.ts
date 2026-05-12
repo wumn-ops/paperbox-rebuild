@@ -26,9 +26,15 @@ const api = {
   listFolders: () => ipcRenderer.invoke('workspace:list-folders') as Promise<FolderItem[]>,
   createFolder: (input: { name: string; parentId?: string | null }) =>
     ipcRenderer.invoke('workspace:create-folder', input) as Promise<FolderItem>,
+  renameFolder: (input: { folderId: string; name: string }) =>
+    ipcRenderer.invoke('workspace:rename-folder', input) as Promise<FolderItem | null>,
+  deleteFolder: (folderId: string) => ipcRenderer.invoke('workspace:delete-folder', folderId) as Promise<boolean>,
   listTags: () => ipcRenderer.invoke('workspace:list-tags') as Promise<TagItem[]>,
   createTag: (input: { name: string; color?: string }) =>
     ipcRenderer.invoke('workspace:create-tag', input) as Promise<TagItem>,
+  renameTag: (input: { tagId: string; name: string }) =>
+    ipcRenderer.invoke('workspace:rename-tag', input) as Promise<TagItem | null>,
+  deleteTag: (tagId: string) => ipcRenderer.invoke('workspace:delete-tag', tagId) as Promise<boolean>,
   setPaperFolder: (input: { paperId: string; folderId: string | null }) =>
     ipcRenderer.invoke('workspace:set-paper-folder', input) as Promise<boolean>,
   setPaperTags: (input: { paperId: string; tagIds: string[] }) =>
