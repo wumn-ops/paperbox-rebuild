@@ -212,6 +212,9 @@ export function App() {
   const [searchTerm, setSearchTerm] = useState('')
   const [fileTypeFilter, setFileTypeFilter] = useState('all')
   const [paperDetailOpen, setPaperDetailOpen] = useState(false)
+  /** 文献列表勾选：加入会话上下文（可多选） */
+  const [contextPaperSelection, setContextPaperSelection] = useState(() => new Set<string>())
+  const paperListSelectAllRef = useRef<HTMLInputElement | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
 
   const [aiSettings, setAiSettings] = useState<AiSettings>(emptyAiSettings)
@@ -242,6 +245,36 @@ export function App() {
     const cutoff = Date.now() - RECENT_MS
     return papers.filter((p) => p.updatedAt >= cutoff)
   }, [papers, libraryNav])
+
+  const displayedPaperIds = useMemo(() => displayedPapers.map((p) => p.id), [displayedPapers])
+
+  const contextSelectStats = useMemo(() => {
+    let selectedOnPage = 0
+    for (const id of displayedPaperIds) {
+      if (contextPaperSelection.has(id)) selectedOnPage += 1
+    }
+    const allDisplayedSelected =
+      displayedPaperIds.length > 0 && selectedOnPage === displayedPaperIds.length
+    const someDisplayedSelected = selectedOnPage > 0 && !allDisplayedSelected
+    return { selectedOnPage, allDisplayedSelected, someDisplayedSelected, contextSelectionCount: contextPaperSelection.size }
+  }, [displayedPaperIds, contextPaperSelection])
+
+  useEffect(() => {
+    const visible = new Set(displayedPapers.map((p) => p.id))
+    setContextPaperSelection((prev) => {
+      const next = new Set<string>()
+      for (const id of prev) {
+        if (visible.has(id)) next.add(id)
+      }
+      if (next.size === prev.size && [...prev].every((id) => next.has(id))) return prev
+      return next
+    })
+  }, [displayedPapers])
+
+  useEffect(() => {
+    const el = paperListSelectAllRef.current
+    if (el) el.indeterminate = contextSelectStats.someDisplayedSelected
+  }, [contextSelectStats.someDisplayedSelected, displayedPaperIds.length])
 
   const activeNote = useMemo(() => notes.find((note) => note.id === selectedNoteId) ?? null, [notes, selectedNoteId])
   const noteDepthMap = useMemo(() => buildNoteDepthMap(notes), [notes])
@@ -613,16 +646,59 @@ export function App() {
     }
   }
 
+  function toggleContextPaperInSelection(paperId: string) {
+    setContextPaperSelection((prev) => {
+      const next = new Set(prev)
+      if (next.has(paperId)) next.delete(paperId)
+      else next.add(paperId)
+      return next
+    })
+  }
+
+  function toggleSelectAllDisplayedPapersForContext() {
+    setContextPaperSelection((prev) => {
+      const ids = displayedPapers.map((p) => p.id)
+      const allSelected = ids.length > 0 && ids.every((id) => prev.has(id))
+      const next = new Set(prev)
+      if (allSelected) {
+        for (const id of ids) next.delete(id)
+      } else {
+        for (const id of ids) next.add(id)
+      }
+      return next
+    })
+  }
+
+  function clearContextPaperSelection() {
+    setContextPaperSelection(new Set())
+  }
+
+  function paperIdsForConversationContext(): string[] {
+    if (contextPaperSelection.size > 0) return Array.from(contextPaperSelection)
+    if (selectedPaperId) return [selectedPaperId]
+    return []
+  }
+
   async function handleCreateConversationFromSelectedPaper() {
-    const paperIds = selectedPaperId ? [selectedPaperId] : []
+    const paperIds = paperIdsForConversationContext()
+    let name = '新对话'
+    if (paperIds.length === 1) {
+      const title =
+        papers.find((p) => p.id === paperIds[0])?.title ??
+        displayedPapers.find((p) => p.id === paperIds[0])?.title ??
+        selectedPaperTitleHint
+      name = title ? `对话：${title}` : '新对话'
+    } else if (paperIds.length > 1) {
+      name = `对话：${paperIds.length} 篇文献`
+    }
     const detail = await window.paperbox.createConversation({
       paperIds,
-      name: selectedPaperTitleHint ? `对话：${selectedPaperTitleHint}` : '新对话'
+      name
     })
     await loadAiChrome()
     setSelectedConversationId(detail.conversation.id)
     setChatPaneOpen(true)
-    setStatusMessage('已创建对话')
+    setStatusMessage(paperIds.length > 1 ? `已创建含 ${paperIds.length} 篇文献的对话` : '已创建对话')
   }
 
   async function handleNewEmptyConversation() {
@@ -821,16 +897,20 @@ export function App() {
     }
   }
 
-  async function handleUseCurrentPaperInConversation() {
-    if (!selectedConversationId || !selectedPaperId) return
+  async function handleAddPapersToConversation() {
+    if (!selectedConversationId) return
+    const paperIds = paperIdsForConversationContext()
+    if (paperIds.length === 0) return
     const next = await window.paperbox.updateConversationPapers({
       conversationId: selectedConversationId,
-      paperIds: [selectedPaperId]
+      paperIds
     })
     if (next) {
       setConversationDetail(next)
       await loadAiChrome()
-      setStatusMessage('已将会话上下文设为当前文献')
+      setStatusMessage(
+        paperIds.length > 1 ? `已将 ${paperIds.length} 篇文献设为会话上下文` : '已将会话上下文设为当前文献'
+      )
     }
   }
 
@@ -968,8 +1048,10 @@ export function App() {
             <div className="library-list-heading">
               <h3>文献列表</h3>
               <p className="muted">{librarySubtitle}</p>
-              {!showDetailColumn && displayedPapers.length > 0 ? (
-                <p className="muted list-panel-hint">点击条目在右侧展开文献详情；展开后可点击「关闭详情」收回。</p>
+              {displayedPapers.length > 0 ? (
+                <p className="muted list-panel-hint">
+                  点击条目在右侧展开文献详情；勾选左侧可一次将多篇文献加入会话上下文。
+                </p>
               ) : null}
             </div>
             <div className="filter-row">
@@ -990,6 +1072,32 @@ export function App() {
             </div>
           </div>
 
+          {!isLoadingList && displayedPapers.length > 0 ? (
+            <div className="paper-list-toolbar">
+              <label className="paper-list-toolbar-select-all">
+                <input
+                  ref={paperListSelectAllRef}
+                  type="checkbox"
+                  checked={contextSelectStats.allDisplayedSelected}
+                  onChange={() => toggleSelectAllDisplayedPapersForContext()}
+                  aria-label="全选当前列表"
+                />
+                全选当前列表
+              </label>
+              <span className="muted paper-list-toolbar-count">
+                已选 {contextSelectStats.contextSelectionCount} 篇
+                {contextSelectStats.selectedOnPage > 0 && contextSelectStats.selectedOnPage < contextSelectStats.contextSelectionCount
+                  ? `（本页 ${contextSelectStats.selectedOnPage} 篇）`
+                  : null}
+              </span>
+              {contextSelectStats.contextSelectionCount > 0 ? (
+                <button className="ghost-button" type="button" onClick={() => clearContextPaperSelection()}>
+                  清除勾选
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="paper-list">
             {isLoadingList ? <p className="empty-state">加载中…</p> : null}
             {!isLoadingList && displayedPapers.length === 0 ? (
@@ -1002,26 +1110,34 @@ export function App() {
               </p>
             ) : null}
             {displayedPapers.map((paper) => (
-              <button
-                key={paper.id}
-                type="button"
-                className={`paper-item ${paper.id === selectedPaperId ? 'is-selected' : ''}`}
-                title={
-                  paper.matchContext
-                    ? `${paper.title}\n匹配片段：${paper.matchContext}`
-                    : paper.title
-                }
-                onClick={() => {
-                  setSelectedPaperId(paper.id)
-                  setPaperDetailOpen(true)
-                }}
-              >
-                <span className="paper-item-name">{paper.title}</span>
-                <span className="paper-item-meta">
-                  <span className="file-badge paper-item-type">{paper.fileType.toUpperCase()}</span>
-                  <span className="paper-date paper-item-time">{formatDate(paper.updatedAt)}</span>
-                </span>
-              </button>
+              <div key={paper.id} className="paper-list-row">
+                <input
+                  type="checkbox"
+                  className="paper-select-checkbox"
+                  checked={contextPaperSelection.has(paper.id)}
+                  onChange={() => toggleContextPaperInSelection(paper.id)}
+                  aria-label={`将「${paper.title}」加入会话上下文`}
+                />
+                <button
+                  type="button"
+                  className={`paper-item ${paper.id === selectedPaperId ? 'is-selected' : ''}`}
+                  title={
+                    paper.matchContext
+                      ? `${paper.title}\n匹配片段：${paper.matchContext}`
+                      : paper.title
+                  }
+                  onClick={() => {
+                    setSelectedPaperId(paper.id)
+                    setPaperDetailOpen(true)
+                  }}
+                >
+                  <span className="paper-item-name">{paper.title}</span>
+                  <span className="paper-item-meta">
+                    <span className="file-badge paper-item-type">{paper.fileType.toUpperCase()}</span>
+                    <span className="paper-date paper-item-time">{formatDate(paper.updatedAt)}</span>
+                  </span>
+                </button>
+              </div>
             ))}
           </div>
         </div>
@@ -1226,10 +1342,14 @@ export function App() {
                 <button
                   className="ghost-button"
                   type="button"
-                  disabled={!selectedConversationId || !selectedPaperId}
-                  onClick={() => void handleUseCurrentPaperInConversation()}
+                  disabled={!selectedConversationId || (contextPaperSelection.size === 0 && !selectedPaperId)}
+                  onClick={() => void handleAddPapersToConversation()}
                 >
-                  使用当前文献
+                  {contextPaperSelection.size > 0
+                    ? `将所选 ${contextPaperSelection.size} 篇加入会话`
+                    : selectedPaperId
+                      ? '将当前文献加入会话'
+                      : '将文献加入会话'}
                 </button>
                 <button
                   className="ghost-button"

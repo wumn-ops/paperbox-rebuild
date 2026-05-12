@@ -549,6 +549,61 @@ p {
   box-shadow: 0 0 0 3px var(--link-soft);
 }
 
+.paper-list-toolbar {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+}
+
+.paper-list-toolbar-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  margin: 0;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.paper-list-toolbar-count {
+  margin: 0;
+  font-size: 12px;
+}
+
+.paper-list-toolbar .ghost-button {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.paper-list-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+}
+
+.paper-select-checkbox {
+  flex-shrink: 0;
+  align-self: center;
+  width: 16px;
+  height: 16px;
+  margin: 0 0 0 2px;
+  cursor: pointer;
+}
+
+.paper-list-row .paper-item {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
 .paper-list {
   flex: 1;
   min-height: 0;
