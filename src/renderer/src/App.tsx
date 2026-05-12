@@ -1850,7 +1850,7 @@ export function App() {
               ))}
             </div>
 
-            <div className="note-editor">
+            <div className={`note-editor ${activeNote ? '' : 'note-editor-empty'}`}>
               {activeNote ? (
                 <>
                   <input
@@ -1865,9 +1865,11 @@ export function App() {
                     onChange={(event) => setEditingNoteContent(event.target.value)}
                     placeholder="记录想法、摘录、待办…"
                   />
-                  <button className="primary-button" type="button" onClick={() => void handleSaveNote()}>
-                    保存笔记
-                  </button>
+                  <div className="note-editor-actions">
+                    <button className="primary-button" type="button" onClick={() => void handleSaveNote()}>
+                      保存笔记
+                    </button>
+                  </div>
                 </>
               ) : (
                 <div className="empty-detail">

@@ -1171,6 +1171,22 @@ button.paper-item {
   background: var(--bg-subtle);
 }
 
+/* 对话发送与笔记保存：统一固定高度，避免在可伸缩区域内被拉高 */
+.chat-composer > .primary-button,
+.note-editor .primary-button {
+  box-sizing: border-box;
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  align-self: start;
+  flex-shrink: 0;
+}
+
 .note-dock-toolbar {
   flex-shrink: 0;
   display: flex;
@@ -1306,10 +1322,45 @@ button.paper-item {
 
 .note-editor {
   display: grid;
+  grid-template-rows: auto 1fr auto;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 12px 14px 0;
   min-height: 0;
+  overflow: hidden;
+}
+
+/* 笔记标题：单行固定高度（10px 无法容纳字号，与主按钮行高约 40px 对齐） */
+.note-editor > .note-title-input {
+  box-sizing: border-box;
+  height: 40px;
+  min-height: 40px;
+  max-height: 40px;
+  padding: 0 12px;
+  line-height: 1.25;
+}
+
+.note-editor > .note-textarea {
+  min-height: 120px;
+  min-width: 0;
+  height: 100%;
+  resize: vertical;
+}
+
+.note-editor-actions {
+  display: flex;
+  align-items: center;
+  padding: 8px 14px 12px;
+  margin: 0 -14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+
+/* 未选笔记时避免 auto / 1fr / auto 留出空白中轨 */
+.note-editor.note-editor-empty {
+  grid-template-rows: 1fr;
+  place-content: center;
   overflow: auto;
+  padding: 12px 14px;
 }
 
 .note-textarea {
