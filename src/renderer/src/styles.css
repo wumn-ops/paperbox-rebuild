@@ -552,21 +552,39 @@ p {
 .paper-list {
   flex: 1;
   min-height: 0;
-  display: grid;
-  gap: 10px;
-  padding: 14px;
+  /* 不用 grid：在 flex:1 占满高度时，grid 默认 align-content:stretch 会把行均分拉高 */
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
   overflow: auto;
 }
 
 .paper-item {
-  display: grid;
-  gap: 6px;
-  padding: 12px 14px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+  line-height: 1.2;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
   text-align: left;
   background: var(--bg-subtle);
+}
+
+/* 取消部分浏览器对 button 的默认最小高度，避免单行列表项被撑高 */
+button.paper-item {
+  min-height: unset;
+  max-height: none;
+  appearance: none;
+  flex-shrink: 0;
 }
 
 .paper-item:hover,
@@ -575,27 +593,42 @@ p {
   background: var(--link-soft);
 }
 
-.paper-item strong {
-  font-size: 14px;
-}
-
-.paper-item p {
-  margin: 0;
-  color: var(--text-secondary);
+.paper-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
-  line-height: 1.45;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text);
 }
 
-.match-context {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.paper-item-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
+/* 类型 + 时间贴右成组，顺序仍为：文件名（左）→ 类型 → 时间 */
+.paper-item-meta {
+  display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.paper-item-time {
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+/* 列表行内徽章：比详情区更扁，避免一行内容被撑高 */
+.paper-item .file-badge {
+  padding: 0 5px;
+  font-size: 10px;
+  line-height: 1.25;
+  min-height: 0;
+}
+
+.paper-item .paper-date {
+  font-size: 10px;
 }
 
 .file-badge {

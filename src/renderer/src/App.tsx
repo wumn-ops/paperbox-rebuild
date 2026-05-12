@@ -867,19 +867,23 @@ export function App() {
             {displayedPapers.map((paper) => (
               <button
                 key={paper.id}
+                type="button"
                 className={`paper-item ${paper.id === selectedPaperId ? 'is-selected' : ''}`}
+                title={
+                  paper.matchContext
+                    ? `${paper.title}\n匹配片段：${paper.matchContext}`
+                    : paper.title
+                }
                 onClick={() => {
                   setSelectedPaperId(paper.id)
                   setPaperDetailOpen(true)
                 }}
               >
-                <div className="paper-item-top">
-                  <span className="file-badge">{paper.fileType.toUpperCase()}</span>
-                  <span className="paper-date">{formatDate(paper.updatedAt)}</span>
-                </div>
-                <strong>{paper.title}</strong>
-                <p>{paper.authors || paper.sourceName || '暂无作者信息'}</p>
-                {paper.matchContext ? <p className="match-context">{paper.matchContext}</p> : null}
+                <span className="paper-item-name">{paper.title}</span>
+                <span className="paper-item-meta">
+                  <span className="file-badge paper-item-type">{paper.fileType.toUpperCase()}</span>
+                  <span className="paper-date paper-item-time">{formatDate(paper.updatedAt)}</span>
+                </span>
               </button>
             ))}
           </div>
