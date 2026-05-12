@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu } from 'electron'
 import { join } from 'node:path'
 import { existsSync, mkdirSync } from 'node:fs'
 import { createDatabase } from './services/database'
@@ -18,6 +18,10 @@ function ensureUserDataDir(): string {
 }
 
 function createMainWindow(): void {
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null)
+  }
+
   mainWindow = new BrowserWindow({
     width: 1600,
     height: 980,
