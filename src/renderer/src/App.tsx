@@ -80,23 +80,31 @@ type AppContextMenuState =
   | { kind: 'folder'; x: number; y: number; folderId: string }
   | { kind: 'tag'; x: number; y: number; tagId: string }
   | { kind: 'paper'; x: number; y: number; paperId: string }
+  | { kind: 'noteGroup'; x: number; y: number; noteId: string }
 
 type RenameDialogState =
   | { kind: 'conversation'; conversationId: string; title: string }
   | { kind: 'folder'; folderId: string; title: string }
   | { kind: 'tag'; tagId: string; title: string }
   | { kind: 'paper'; paperId: string; title: string }
+  | { kind: 'note'; noteId: string; title: string }
 
 const RECENT_MS = 14 * 24 * 60 * 60 * 1000
 const CONV_MENU_W = 168
 const CONV_MENU_H = 88
+const NOTE_GROUP_MENU_W = 176
+const NOTE_GROUP_MENU_H = 124
 
-function clampConvMenuPosition(x: number, y: number): { x: number; y: number } {
+function clampConvMenuPosition(
+  x: number,
+  y: number,
+  menu: { w: number; h: number } = { w: CONV_MENU_W, h: CONV_MENU_H }
+): { x: number; y: number } {
   const pad = 8
   let nx = x
   let ny = y
-  if (nx + CONV_MENU_W > window.innerWidth - pad) nx = window.innerWidth - CONV_MENU_W - pad
-  if (ny + CONV_MENU_H > window.innerHeight - pad) ny = window.innerHeight - CONV_MENU_H - pad
+  if (nx + menu.w > window.innerWidth - pad) nx = window.innerWidth - menu.w - pad
+  if (ny + menu.h > window.innerHeight - pad) ny = window.innerHeight - menu.h - pad
   if (nx < pad) nx = pad
   if (ny < pad) ny = pad
   return { x: nx, y: ny }
@@ -321,7 +329,9 @@ export function App() {
           ? `f:${renameDialog.folderId}`
           : renameDialog.kind === 'tag'
             ? `t:${renameDialog.tagId}`
-            : `p:${renameDialog.paperId}`
+            : renameDialog.kind === 'note'
+              ? `n:${renameDialog.noteId}`
+              : `p:${renameDialog.paperId}`
     const isFirstOpen = renameDialogFocusKeyRef.current !== key
     renameDialogFocusKeyRef.current = key
     if (isFirstOpen) {
@@ -446,11 +456,15 @@ export function App() {
     try {
       const nextNotes = await window.paperbox.listNotes(paperId)
       setNotes(nextNotes)
-      const nextSelected =
-        preferredNoteId && nextNotes.some((note) => note.id === preferredNoteId)
-          ? preferredNoteId
-          : nextNotes[0]?.id ?? null
-      setSelectedNoteId(nextSelected)
+      setSelectedNoteId((prev) => {
+        if (preferredNoteId && nextNotes.some((note) => note.id === preferredNoteId)) {
+          return preferredNoteId
+        }
+        if (prev && nextNotes.some((note) => note.id === prev)) {
+          return prev
+        }
+        return nextNotes[0]?.id ?? null
+      })
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '加载笔记失败')
     }
@@ -744,6 +758,16 @@ export function App() {
     setContextMenu({ kind: 'paper', x, y, paperId })
   }
 
+  function handleNoteGroupContextMenu(event: React.MouseEvent, noteId: string) {
+    event.preventDefault()
+    event.stopPropagation()
+    const { x, y } = clampConvMenuPosition(event.clientX, event.clientY, {
+      w: NOTE_GROUP_MENU_W,
+      h: NOTE_GROUP_MENU_H
+    })
+    setContextMenu({ kind: 'noteGroup', x, y, noteId })
+  }
+
   function openRenameConversation(conversationId: string) {
     const conv = conversations.find((c) => c.id === conversationId)
     setContextMenu(null)
@@ -767,6 +791,51 @@ export function App() {
       displayedPapers.find((p) => p.id === paperId) ?? papers.find((p) => p.id === paperId)
     setContextMenu(null)
     setRenameDialog({ kind: 'paper', paperId, title: paper?.title ?? '' })
+  }
+
+  function openRenameNote(noteId: string) {
+    const note = notes.find((n) => n.id === noteId)
+    setContextMenu(null)
+    setRenameDialog({ kind: 'note', noteId, title: note?.title ?? '' })
+  }
+
+  async function handleDeleteNoteGroup(noteId: string) {
+    const note = notes.find((n) => n.id === noteId)
+    const ok = window.confirm(
+      note
+        ? `确定删除分组「${note.title}」及其中的全部子笔记？此操作不可恢复。`
+        : '确定删除该分组及其中的全部子笔记？此操作不可恢复。'
+    )
+    if (!ok) return
+    setContextMenu(null)
+    try {
+      const deleted = await window.paperbox.deleteNote(noteId)
+      if (!deleted) {
+        setStatusMessage('未找到该分组')
+        await loadNotes(selectedPaperId)
+        return
+      }
+      await loadNotes(selectedPaperId)
+      setStatusMessage('已删除分组')
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : '删除失败')
+    }
+  }
+
+  async function handleAddNoteUnderGroup(groupId: string) {
+    setContextMenu(null)
+    try {
+      const note = await window.paperbox.createNote({
+        paperId: selectedPaperId,
+        parentId: groupId,
+        title: '未命名笔记',
+        isGroup: false
+      })
+      await loadNotes(selectedPaperId, note.id)
+      setStatusMessage('已在分组下添加笔记')
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : '添加笔记失败')
+    }
   }
 
   async function handleConfirmRename() {
@@ -820,6 +889,24 @@ export function App() {
           setSelectedPaper(detail)
         }
         setStatusMessage('已重命名标签')
+        return
+      }
+      if (renameDialog.kind === 'note') {
+        const noteId = renameDialog.noteId
+        const existing = notes.find((n) => n.id === noteId)
+        const updated = await window.paperbox.updateNote({
+          id: noteId,
+          title,
+          content: existing?.content ?? ''
+        })
+        setRenameDialog(null)
+        if (!updated) {
+          setStatusMessage('未找到该笔记')
+          await loadNotes(selectedPaperId)
+          return
+        }
+        await loadNotes(selectedPaperId, updated.id)
+        setStatusMessage('已重命名分组')
         return
       }
       const paperId = renameDialog.paperId
@@ -1549,6 +1636,7 @@ export function App() {
                   className={`note-tree-item ${note.id === selectedNoteId ? 'is-selected' : ''}`}
                   style={{ paddingLeft: `${12 + (noteDepthMap.get(note.id) ?? 0) * 16}px` }}
                   onClick={() => setSelectedNoteId(note.id)}
+                  onContextMenu={note.isGroup ? (event) => handleNoteGroupContextMenu(event, note.id) : undefined}
                 >
                   <span>{note.isGroup ? '＃' : '•'}</span>
                   <span>{note.title}</span>
@@ -2050,32 +2138,63 @@ export function App() {
           style={{ left: contextMenu.x, top: contextMenu.y }}
           role="menu"
         >
-          <button
-            type="button"
-            className="context-menu-item"
-            role="menuitem"
-            onClick={() => {
-              if (contextMenu.kind === 'conversation') openRenameConversation(contextMenu.conversationId)
-              else if (contextMenu.kind === 'folder') openRenameFolder(contextMenu.folderId)
-              else if (contextMenu.kind === 'tag') openRenameTag(contextMenu.tagId)
-              else openRenamePaper(contextMenu.paperId)
-            }}
-          >
-            重命名
-          </button>
-          <button
-            type="button"
-            className="context-menu-item danger"
-            role="menuitem"
-            onClick={() => {
-              if (contextMenu.kind === 'conversation') void handleDeleteConversationById(contextMenu.conversationId)
-              else if (contextMenu.kind === 'folder') void handleDeleteFolderById(contextMenu.folderId)
-              else if (contextMenu.kind === 'tag') void handleDeleteTagById(contextMenu.tagId)
-              else void handleDeletePaperById(contextMenu.paperId)
-            }}
-          >
-            删除
-          </button>
+          {contextMenu.kind === 'noteGroup' ? (
+            <>
+              <button
+                type="button"
+                className="context-menu-item"
+                role="menuitem"
+                onClick={() => openRenameNote(contextMenu.noteId)}
+              >
+                重命名
+              </button>
+              <button
+                type="button"
+                className="context-menu-item danger"
+                role="menuitem"
+                onClick={() => void handleDeleteNoteGroup(contextMenu.noteId)}
+              >
+                删除
+              </button>
+              <button
+                type="button"
+                className="context-menu-item"
+                role="menuitem"
+                onClick={() => void handleAddNoteUnderGroup(contextMenu.noteId)}
+              >
+                添加笔记
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="context-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  if (contextMenu.kind === 'conversation') openRenameConversation(contextMenu.conversationId)
+                  else if (contextMenu.kind === 'folder') openRenameFolder(contextMenu.folderId)
+                  else if (contextMenu.kind === 'tag') openRenameTag(contextMenu.tagId)
+                  else openRenamePaper(contextMenu.paperId)
+                }}
+              >
+                重命名
+              </button>
+              <button
+                type="button"
+                className="context-menu-item danger"
+                role="menuitem"
+                onClick={() => {
+                  if (contextMenu.kind === 'conversation') void handleDeleteConversationById(contextMenu.conversationId)
+                  else if (contextMenu.kind === 'folder') void handleDeleteFolderById(contextMenu.folderId)
+                  else if (contextMenu.kind === 'tag') void handleDeleteTagById(contextMenu.tagId)
+                  else void handleDeletePaperById(contextMenu.paperId)
+                }}
+              >
+                删除
+              </button>
+            </>
+          )}
         </div>
       ) : null}
 
@@ -2095,7 +2214,9 @@ export function App() {
                   ? '重命名文件夹'
                   : renameDialog.kind === 'tag'
                     ? '重命名标签'
-                    : '重命名文献'}
+                    : renameDialog.kind === 'note'
+                      ? '重命名分组'
+                      : '重命名文献'}
             </h3>
             <label className="field-label" htmlFor="rename-entity-input">
               {renameDialog.kind === 'paper' ? '标题' : '名称'}

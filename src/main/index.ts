@@ -36,10 +36,25 @@ function createMainWindow(): void {
     }
   })
 
-  if (process.env.ELECTRON_RENDERER_URL) {
-    void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
+  const rendererDevUrl = process.env.ELECTRON_RENDERER_URL
+  const indexHtmlPath = join(__dirname, '../../dist/index.html')
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame) return
+    console.error('[PaperBox main] did-fail-load (main frame)', {
+      errorCode,
+      errorDescription,
+      validatedURL,
+      mode: rendererDevUrl ? 'dev' : 'prod',
+      expected: rendererDevUrl ?? indexHtmlPath,
+      indexHtmlExists: rendererDevUrl ? undefined : existsSync(indexHtmlPath)
+    })
+  })
+
+  if (rendererDevUrl) {
+    void mainWindow.loadURL(rendererDevUrl)
   } else {
-    void mainWindow.loadFile(join(__dirname, '../../dist/index.html'))
+    void mainWindow.loadFile(indexHtmlPath)
   }
 }
 
@@ -106,6 +121,7 @@ app.whenReady().then(() => {
     'workspace:update-note',
     async (_event, input: { id: string; title: string; content: string }) => workspace.updateNote(input)
   )
+  ipcMain.handle('workspace:delete-note', async (_event, noteId: string) => workspace.deleteNote(noteId))
 
   ipcMain.handle('ai:get-settings', async () => ai.getSettings())
   ipcMain.handle(

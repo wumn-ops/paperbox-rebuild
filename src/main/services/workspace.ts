@@ -45,6 +45,7 @@ export interface WorkspaceService {
   listNotes(paperId: string | null): NoteItem[]
   createNote(input: { paperId: string | null; parentId?: string | null; title: string; isGroup: boolean }): NoteItem
   updateNote(input: { id: string; title: string; content: string }): NoteItem | null
+  deleteNote(noteId: string): boolean
 }
 
 export function createWorkspaceService(database: DatabaseContext): WorkspaceService {
@@ -192,6 +193,8 @@ export function createWorkspaceService(database: DatabaseContext): WorkspaceServ
     WHERE id = ?
   `)
 
+  const deleteNoteByIdStmt = database.db.prepare(`DELETE FROM notes WHERE id = ?`)
+
   return {
     listFolders() {
       return (listFoldersStmt.all() as FolderRow[]).map(mapFolder)
@@ -280,6 +283,46 @@ export function createWorkspaceService(database: DatabaseContext): WorkspaceServ
       })
       const row = getNoteStmt.get(input.id) as NoteRow | undefined
       return row ? mapNote(row) : null
+    },
+    deleteNote(noteId) {
+      const root = getNoteStmt.get(noteId) as NoteRow | undefined
+      if (!root) return false
+
+      const paperScope = root.paper_id
+      const allRows = listNotesStmt.all({ paperId: paperScope }) as NoteRow[]
+      const byId = new Map(allRows.map((r) => [r.id, r]))
+
+      const subtree = new Set<string>()
+      const stack = [noteId]
+      while (stack.length) {
+        const id = stack.pop()!
+        if (!byId.has(id)) continue
+        if (subtree.has(id)) continue
+        subtree.add(id)
+        for (const r of allRows) {
+          if (r.parent_id === id) stack.push(r.id)
+        }
+      }
+
+      const depthMemo = new Map<string, number>()
+      const depthOf = (id: string): number => {
+        if (depthMemo.has(id)) return depthMemo.get(id)!
+        const row = byId.get(id)
+        if (!row || !row.parent_id) {
+          depthMemo.set(id, 0)
+          return 0
+        }
+        const d = depthOf(row.parent_id) + 1
+        depthMemo.set(id, d)
+        return d
+      }
+
+      const ordered = [...subtree].sort((a, b) => depthOf(b) - depthOf(a))
+
+      for (const id of ordered) {
+        deleteNoteByIdStmt.run(id)
+      }
+      return true
     }
   }
 }

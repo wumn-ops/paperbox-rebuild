@@ -42,6 +42,7 @@ declare global {
         isGroup: boolean
       }) => Promise<NoteItem>
       updateNote: (input: { id: string; title: string; content: string }) => Promise<NoteItem | null>
+      deleteNote: (noteId: string) => Promise<boolean>
       getAiSettings: () => Promise<AiSettings>
       saveAiPreset: (input: {
         id?: string
