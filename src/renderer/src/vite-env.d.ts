@@ -43,6 +43,7 @@ declare global {
       }) => Promise<NoteItem>
       updateNote: (input: { id: string; title: string; content: string }) => Promise<NoteItem | null>
       deleteNote: (noteId: string) => Promise<boolean>
+      setNoteParent: (input: { noteId: string; parentId: string | null }) => Promise<NoteItem | null>
       getAiSettings: () => Promise<AiSettings>
       saveAiPreset: (input: {
         id?: string

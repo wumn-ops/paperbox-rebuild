@@ -81,19 +81,24 @@ type AppContextMenuState =
   | { kind: 'tag'; x: number; y: number; tagId: string }
   | { kind: 'paper'; x: number; y: number; paperId: string }
   | { kind: 'noteGroup'; x: number; y: number; noteId: string }
+  | { kind: 'noteItem'; x: number; y: number; noteId: string }
 
 type RenameDialogState =
   | { kind: 'conversation'; conversationId: string; title: string }
   | { kind: 'folder'; folderId: string; title: string }
   | { kind: 'tag'; tagId: string; title: string }
   | { kind: 'paper'; paperId: string; title: string }
-  | { kind: 'note'; noteId: string; title: string }
+  | { kind: 'note'; noteId: string; title: string; isGroup: boolean }
+
+type MoveNoteDialogState = { noteId: string; selectedParentId: string | null }
 
 const RECENT_MS = 14 * 24 * 60 * 60 * 1000
 const CONV_MENU_W = 168
 const CONV_MENU_H = 88
 const NOTE_GROUP_MENU_W = 176
 const NOTE_GROUP_MENU_H = 124
+const NOTE_ITEM_MENU_W = 184
+const NOTE_ITEM_MENU_H = 168
 
 function clampConvMenuPosition(
   x: number,
@@ -169,6 +174,26 @@ function buildNoteDepthMap(notes: NoteItem[]): Map<string, number> {
   return result
 }
 
+function collectSubtreeIds(notes: NoteItem[], rootId: string): Set<string> {
+  const childrenByParent = new Map<string | null, string[]>()
+  for (const n of notes) {
+    const p = n.parentId
+    if (!childrenByParent.has(p)) childrenByParent.set(p, [])
+    childrenByParent.get(p)!.push(n.id)
+  }
+  const out = new Set<string>()
+  const stack = [rootId]
+  while (stack.length) {
+    const id = stack.pop()!
+    if (out.has(id)) continue
+    out.add(id)
+    for (const c of childrenByParent.get(id) ?? []) {
+      stack.push(c)
+    }
+  }
+  return out
+}
+
 function defaultPresetDraft(): AiPreset {
   return {
     id: '',
@@ -238,6 +263,7 @@ export function App() {
   const [isExportingConversation, setIsExportingConversation] = useState(false)
   const [contextMenu, setContextMenu] = useState<AppContextMenuState | null>(null)
   const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
+  const [moveNoteDialog, setMoveNoteDialog] = useState<MoveNoteDialogState | null>(null)
 
   const deferredKeyword = useDeferredValue(searchTerm)
   const activeQuery = useMemo<LibraryQuery>(
@@ -288,6 +314,11 @@ export function App() {
 
   const activeNote = useMemo(() => notes.find((note) => note.id === selectedNoteId) ?? null, [notes, selectedNoteId])
   const noteDepthMap = useMemo(() => buildNoteDepthMap(notes), [notes])
+  const moveNoteGroupOptions = useMemo(() => {
+    if (!moveNoteDialog) return [] as NoteItem[]
+    const blocked = collectSubtreeIds(notes, moveNoteDialog.noteId)
+    return notes.filter((n) => n.isGroup && !blocked.has(n.id))
+  }, [moveNoteDialog, notes])
   const activePreset = useMemo(
     () => aiSettings.presets.find((preset) => preset.id === aiSettings.activePresetId) ?? null,
     [aiSettings]
@@ -758,14 +789,22 @@ export function App() {
     setContextMenu({ kind: 'paper', x, y, paperId })
   }
 
-  function handleNoteGroupContextMenu(event: React.MouseEvent, noteId: string) {
+  function handleNoteContextMenu(event: React.MouseEvent, note: NoteItem) {
     event.preventDefault()
     event.stopPropagation()
-    const { x, y } = clampConvMenuPosition(event.clientX, event.clientY, {
-      w: NOTE_GROUP_MENU_W,
-      h: NOTE_GROUP_MENU_H
-    })
-    setContextMenu({ kind: 'noteGroup', x, y, noteId })
+    if (note.isGroup) {
+      const { x, y } = clampConvMenuPosition(event.clientX, event.clientY, {
+        w: NOTE_GROUP_MENU_W,
+        h: NOTE_GROUP_MENU_H
+      })
+      setContextMenu({ kind: 'noteGroup', x, y, noteId: note.id })
+    } else {
+      const { x, y } = clampConvMenuPosition(event.clientX, event.clientY, {
+        w: NOTE_ITEM_MENU_W,
+        h: NOTE_ITEM_MENU_H
+      })
+      setContextMenu({ kind: 'noteItem', x, y, noteId: note.id })
+    }
   }
 
   function openRenameConversation(conversationId: string) {
@@ -796,27 +835,63 @@ export function App() {
   function openRenameNote(noteId: string) {
     const note = notes.find((n) => n.id === noteId)
     setContextMenu(null)
-    setRenameDialog({ kind: 'note', noteId, title: note?.title ?? '' })
+    setRenameDialog({ kind: 'note', noteId, title: note?.title ?? '', isGroup: note?.isGroup ?? false })
   }
 
-  async function handleDeleteNoteGroup(noteId: string) {
+  function openMoveNoteDialog(noteId: string) {
+    setContextMenu(null)
     const note = notes.find((n) => n.id === noteId)
-    const ok = window.confirm(
-      note
-        ? `确定删除分组「${note.title}」及其中的全部子笔记？此操作不可恢复。`
-        : '确定删除该分组及其中的全部子笔记？此操作不可恢复。'
-    )
+    const blocked = collectSubtreeIds(notes, noteId)
+    let parent = note?.parentId ?? null
+    if (parent !== null) {
+      const ok = notes.some((n) => n.isGroup && n.id === parent && !blocked.has(n.id))
+      if (!ok) parent = null
+    }
+    setMoveNoteDialog({ noteId, selectedParentId: parent })
+  }
+
+  async function handleConfirmMoveNote() {
+    if (!moveNoteDialog) return
+    try {
+      const updated = await window.paperbox.setNoteParent({
+        noteId: moveNoteDialog.noteId,
+        parentId: moveNoteDialog.selectedParentId
+      })
+      if (!updated) {
+        setStatusMessage('无法移动到所选分组（目标无效或会形成循环）')
+        return
+      }
+      setMoveNoteDialog(null)
+      await loadNotes(selectedPaperId, updated.id)
+      setStatusMessage('已移动笔记')
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : '移动失败')
+    }
+  }
+
+  async function handleDeleteNoteEntry(noteId: string) {
+    const note = notes.find((n) => n.id === noteId)
+    const hasChildren = notes.some((n) => n.parentId === noteId)
+    let message: string
+    if (note?.isGroup || hasChildren) {
+      message = note
+        ? `确定删除「${note.title}」及其中的全部子笔记？此操作不可恢复。`
+        : '确定删除该项及其中的全部子笔记？此操作不可恢复。'
+    } else {
+      message = note ? `确定删除笔记「${note.title}」？此操作不可恢复。` : '确定删除该笔记？此操作不可恢复。'
+    }
+    const ok = window.confirm(message)
     if (!ok) return
     setContextMenu(null)
     try {
       const deleted = await window.paperbox.deleteNote(noteId)
       if (!deleted) {
-        setStatusMessage('未找到该分组')
+        setStatusMessage('未找到该笔记')
         await loadNotes(selectedPaperId)
         return
       }
       await loadNotes(selectedPaperId)
-      setStatusMessage('已删除分组')
+      setStatusMessage(note?.isGroup || hasChildren ? '已删除（含子笔记）' : '已删除笔记')
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '删除失败')
     }
@@ -906,7 +981,7 @@ export function App() {
           return
         }
         await loadNotes(selectedPaperId, updated.id)
-        setStatusMessage('已重命名分组')
+        setStatusMessage(renameDialog.isGroup ? '已重命名分组' : '已重命名笔记')
         return
       }
       const paperId = renameDialog.paperId
@@ -1636,7 +1711,7 @@ export function App() {
                   className={`note-tree-item ${note.id === selectedNoteId ? 'is-selected' : ''}`}
                   style={{ paddingLeft: `${12 + (noteDepthMap.get(note.id) ?? 0) * 16}px` }}
                   onClick={() => setSelectedNoteId(note.id)}
-                  onContextMenu={note.isGroup ? (event) => handleNoteGroupContextMenu(event, note.id) : undefined}
+                  onContextMenu={(event) => handleNoteContextMenu(event, note)}
                 >
                   <span>{note.isGroup ? '＃' : '•'}</span>
                   <span>{note.title}</span>
@@ -2152,7 +2227,7 @@ export function App() {
                 type="button"
                 className="context-menu-item danger"
                 role="menuitem"
-                onClick={() => void handleDeleteNoteGroup(contextMenu.noteId)}
+                onClick={() => void handleDeleteNoteEntry(contextMenu.noteId)}
               >
                 删除
               </button>
@@ -2163,6 +2238,33 @@ export function App() {
                 onClick={() => void handleAddNoteUnderGroup(contextMenu.noteId)}
               >
                 添加笔记
+              </button>
+            </>
+          ) : contextMenu.kind === 'noteItem' ? (
+            <>
+              <button
+                type="button"
+                className="context-menu-item"
+                role="menuitem"
+                onClick={() => openRenameNote(contextMenu.noteId)}
+              >
+                重命名
+              </button>
+              <button
+                type="button"
+                className="context-menu-item"
+                role="menuitem"
+                onClick={() => openMoveNoteDialog(contextMenu.noteId)}
+              >
+                移动到分组
+              </button>
+              <button
+                type="button"
+                className="context-menu-item danger"
+                role="menuitem"
+                onClick={() => void handleDeleteNoteEntry(contextMenu.noteId)}
+              >
+                删除
               </button>
             </>
           ) : (
@@ -2215,11 +2317,19 @@ export function App() {
                   : renameDialog.kind === 'tag'
                     ? '重命名标签'
                     : renameDialog.kind === 'note'
-                      ? '重命名分组'
+                      ? renameDialog.isGroup
+                        ? '重命名分组'
+                        : '重命名笔记'
                       : '重命名文献'}
             </h3>
             <label className="field-label" htmlFor="rename-entity-input">
-              {renameDialog.kind === 'paper' ? '标题' : '名称'}
+              {renameDialog.kind === 'paper'
+                ? '标题'
+                : renameDialog.kind === 'note'
+                  ? renameDialog.isGroup
+                    ? '名称'
+                    : '标题'
+                  : '名称'}
             </label>
             <input
               id="rename-entity-input"
@@ -2238,6 +2348,62 @@ export function App() {
               </button>
               <button type="button" className="primary-button" onClick={() => void handleConfirmRename()}>
                 保存
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {moveNoteDialog ? (
+        <div
+          className="modal-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setMoveNoteDialog(null)
+          }}
+        >
+          <div
+            className="rename-modal"
+            role="dialog"
+            aria-labelledby="move-note-dialog-title"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <h3 id="move-note-dialog-title" className="rename-modal-title">
+              移动到分组
+            </h3>
+            <p className="muted" style={{ margin: '0 0 10px', fontSize: 13 }}>
+              选择目标分组，或移回顶级。仅在当前笔记本范围内有效。
+            </p>
+            <div className="move-note-parent-list" role="radiogroup" aria-label="目标分组">
+              <label className="move-note-parent-option">
+                <input
+                  type="radio"
+                  name="move-note-parent"
+                  checked={moveNoteDialog.selectedParentId === null}
+                  onChange={() => setMoveNoteDialog((d) => (d ? { ...d, selectedParentId: null } : null))}
+                />
+                <span>顶级（不分组）</span>
+              </label>
+              {moveNoteGroupOptions.map((g) => (
+                <label key={g.id} className="move-note-parent-option">
+                  <input
+                    type="radio"
+                    name="move-note-parent"
+                    checked={moveNoteDialog.selectedParentId === g.id}
+                    onChange={() => setMoveNoteDialog((d) => (d ? { ...d, selectedParentId: g.id } : null))}
+                  />
+                  <span style={{ paddingLeft: `${(noteDepthMap.get(g.id) ?? 0) * 12}px` }}>
+                    <span className="move-note-parent-marker">＃</span> {g.title}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div className="rename-modal-actions">
+              <button type="button" className="ghost-button" onClick={() => setMoveNoteDialog(null)}>
+                取消
+              </button>
+              <button type="button" className="primary-button" onClick={() => void handleConfirmMoveNote()}>
+                移动
               </button>
             </div>
           </div>

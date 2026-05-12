@@ -46,6 +46,7 @@ export interface WorkspaceService {
   createNote(input: { paperId: string | null; parentId?: string | null; title: string; isGroup: boolean }): NoteItem
   updateNote(input: { id: string; title: string; content: string }): NoteItem | null
   deleteNote(noteId: string): boolean
+  setNoteParent(input: { noteId: string; parentId: string | null }): NoteItem | null
 }
 
 export function createWorkspaceService(database: DatabaseContext): WorkspaceService {
@@ -195,6 +196,13 @@ export function createWorkspaceService(database: DatabaseContext): WorkspaceServ
 
   const deleteNoteByIdStmt = database.db.prepare(`DELETE FROM notes WHERE id = ?`)
 
+  const updateNoteParentStmt = database.db.prepare(`
+    UPDATE notes
+    SET parent_id = @parent_id,
+        updated_at = @updated_at
+    WHERE id = @id
+  `)
+
   return {
     listFolders() {
       return (listFoldersStmt.all() as FolderRow[]).map(mapFolder)
@@ -323,6 +331,40 @@ export function createWorkspaceService(database: DatabaseContext): WorkspaceServ
         deleteNoteByIdStmt.run(id)
       }
       return true
+    },
+    setNoteParent(input) {
+      const row = getNoteStmt.get(input.noteId) as NoteRow | undefined
+      if (!row) return null
+
+      const paperScope = row.paper_id
+      const allRows = listNotesStmt.all({ paperId: paperScope }) as NoteRow[]
+
+      const subtree = new Set<string>()
+      const stack = [input.noteId]
+      while (stack.length) {
+        const id = stack.pop()!
+        if (subtree.has(id)) continue
+        subtree.add(id)
+        for (const r of allRows) {
+          if (r.parent_id === id) stack.push(r.id)
+        }
+      }
+
+      if (input.parentId !== null) {
+        if (input.parentId === input.noteId) return null
+        if (subtree.has(input.parentId)) return null
+
+        const parentRow = getNoteStmt.get(input.parentId) as NoteRow | undefined
+        if (!parentRow || parentRow.is_group !== 1) return null
+        if (row.paper_id !== parentRow.paper_id) return null
+      }
+
+      updateNoteParentStmt.run({
+        parent_id: input.parentId,
+        id: input.noteId,
+        updated_at: Date.now()
+      })
+      return mapNote(getNoteStmt.get(input.noteId) as NoteRow)
     }
   }
 }

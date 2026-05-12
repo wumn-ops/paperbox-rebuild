@@ -49,6 +49,8 @@ const api = {
   updateNote: (input: { id: string; title: string; content: string }) =>
     ipcRenderer.invoke('workspace:update-note', input) as Promise<NoteItem | null>,
   deleteNote: (noteId: string) => ipcRenderer.invoke('workspace:delete-note', noteId) as Promise<boolean>,
+  setNoteParent: (input: { noteId: string; parentId: string | null }) =>
+    ipcRenderer.invoke('workspace:set-note-parent', input) as Promise<NoteItem | null>,
   getAiSettings: () => ipcRenderer.invoke('ai:get-settings') as Promise<AiSettings>,
   saveAiPreset: (input: { id?: string; name: string; apiKey: string; baseUrl: string; model: string; provider: string }) =>
     ipcRenderer.invoke('ai:save-preset', input) as Promise<AiSettings>,

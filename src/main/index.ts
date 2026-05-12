@@ -122,6 +122,10 @@ app.whenReady().then(() => {
     async (_event, input: { id: string; title: string; content: string }) => workspace.updateNote(input)
   )
   ipcMain.handle('workspace:delete-note', async (_event, noteId: string) => workspace.deleteNote(noteId))
+  ipcMain.handle(
+    'workspace:set-note-parent',
+    async (_event, input: { noteId: string; parentId: string | null }) => workspace.setNoteParent(input)
+  )
 
   ipcMain.handle('ai:get-settings', async () => ai.getSettings())
   ipcMain.handle(
