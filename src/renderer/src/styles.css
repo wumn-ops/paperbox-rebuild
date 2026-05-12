@@ -453,6 +453,43 @@ p {
   flex-shrink: 0;
 }
 
+.library-panel-header {
+  gap: 14px;
+}
+
+.library-workbench-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.library-workbench-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.library-inline-banner {
+  margin: 0;
+}
+
+.library-list-heading {
+  display: grid;
+  gap: 6px;
+  padding-top: 2px;
+  margin-top: 2px;
+  border-top: 1px solid var(--border);
+}
+
+.library-list-heading h3 {
+  margin: 8px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
 .panel-header h3 {
   margin: 0;
   font-size: 16px;

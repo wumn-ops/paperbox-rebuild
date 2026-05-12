@@ -697,8 +697,24 @@ export function App() {
     return (
       <section className={`library-layout ${showDetailColumn ? 'has-detail-open' : ''}`}>
         <div className="panel list-panel">
-          <div className="panel-header">
-            <div>
+          <div className="panel-header library-panel-header">
+            <div className="library-workbench-top">
+              <div>
+                <p className="eyebrow">资料库</p>
+                <h2 className="library-workbench-title">文献工作台</h2>
+              </div>
+              <div className="button-row">
+                <button className="primary-button" type="button" onClick={() => void handleImport()} disabled={isImporting}>
+                  {isImporting ? '导入中…' : '导入文件'}
+                </button>
+              </div>
+            </div>
+            {statusMessage ? (
+              <div className="banner library-inline-banner" role="status">
+                {statusMessage}
+              </div>
+            ) : null}
+            <div className="library-list-heading">
               <h3>文献列表</h3>
               <p className="muted">{librarySubtitle}</p>
               {!showDetailColumn && displayedPapers.length > 0 ? (
@@ -1471,27 +1487,24 @@ export function App() {
 
       <main className="main-stage">
         <div className="main-stage-inner">
-          <header className="workspace-header">
-            <div>
-              <p className="eyebrow">{mainView === 'settings' ? '系统' : '资料库'}</p>
-              <h2>{mainView === 'settings' ? '设置' : '文献工作台'}</h2>
-            </div>
-            {mainView === 'library' ? (
-              <div className="button-row">
-                <button className="primary-button" type="button" onClick={() => void handleImport()} disabled={isImporting}>
-                  {isImporting ? '导入中…' : '导入文件'}
-                </button>
-              </div>
-            ) : null}
-          </header>
-
-          {statusMessage ? (
-            <div className="banner" role="status">
-              {statusMessage}
-            </div>
-          ) : null}
-
-          {mainView === 'library' ? renderLibraryMain() : renderSettingsPage()}
+          {mainView === 'settings' ? (
+            <>
+              <header className="workspace-header workspace-header--settings">
+                <div>
+                  <p className="eyebrow">系统</p>
+                  <h2>设置</h2>
+                </div>
+              </header>
+              {statusMessage ? (
+                <div className="banner" role="status">
+                  {statusMessage}
+                </div>
+              ) : null}
+              {renderSettingsPage()}
+            </>
+          ) : (
+            renderLibraryMain()
+          )}
         </div>
       </main>
 
