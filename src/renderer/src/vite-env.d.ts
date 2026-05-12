@@ -55,13 +55,17 @@ declare global {
       }) => Promise<AiSettings>
       setActiveAiPreset: (id: string) => Promise<AiSettings>
       listConversations: () => Promise<ConversationSummary[]>
-      createConversation: (input: { name?: string; paperIds: string[] }) => Promise<ConversationDetail>
+      createConversation: (input: { name?: string; paperIds: string[]; noteIds?: string[] }) => Promise<ConversationDetail>
       getConversation: (id: string) => Promise<ConversationDetail | null>
       renameConversation: (input: { conversationId: string; name: string }) => Promise<ConversationDetail | null>
       deleteConversation: (conversationId: string) => Promise<boolean>
       updateConversationPapers: (input: {
         conversationId: string
         paperIds: string[]
+      }) => Promise<ConversationDetail | null>
+      updateConversationNotes: (input: {
+        conversationId: string
+        noteIds: string[]
       }) => Promise<ConversationDetail | null>
       sendAiMessage: (input: { conversationId: string; content: string }) => Promise<ConversationDetail>
       exportConversation: (conversationId: string) => Promise<{ filePath: string } | null>

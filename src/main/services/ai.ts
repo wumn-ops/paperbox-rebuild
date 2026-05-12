@@ -10,6 +10,7 @@ import type {
   ConversationMessage,
   ConversationSummary,
   ExportConversationResult,
+  NoteItem,
   PaperSummary
 } from '../../shared/contracts'
 
@@ -28,6 +29,19 @@ interface ConversationRow {
   id: string
   name: string
   paper_ids: string
+  note_ids: string
+  created_at: number
+  updated_at: number
+}
+
+interface CtxNoteRow {
+  id: string
+  paper_id: string | null
+  parent_id: string | null
+  title: string
+  content: string
+  is_group: number
+  sort_order: number
   created_at: number
   updated_at: number
 }
@@ -83,12 +97,14 @@ export interface AiService {
   savePreset(input: { id?: string; name: string; apiKey: string; baseUrl: string; model: string; provider: string }): AiSettings
   setActivePreset(id: string): AiSettings
   listConversations(): ConversationSummary[]
-  createConversation(input: { name?: string; paperIds: string[] }): ConversationDetail
+  createConversation(input: { name?: string; paperIds: string[]; noteIds?: string[] }): ConversationDetail
   getConversation(id: string): ConversationDetail | null
   renameConversation(input: { conversationId: string; name: string }): ConversationDetail | null
   deleteConversation(conversationId: string): boolean
   updateConversationPapers(input: { conversationId: string; paperIds: string[] }): ConversationDetail | null
+  updateConversationNotes(input: { conversationId: string; noteIds: string[] }): ConversationDetail | null
   removePaperIdFromAllConversations(paperId: string): void
+  removeNoteIdFromAllConversations(noteId: string): void
   sendMessage(input: { conversationId: string; content: string }): Promise<ConversationDetail>
   exportConversation(conversationId: string): Promise<ExportConversationResult | null>
 }
@@ -131,21 +147,21 @@ export function createAiService(database: DatabaseContext): AiService {
   const getSettingStmt = database.db.prepare(`SELECT value FROM settings WHERE key = ?`)
 
   const listConversationsStmt = database.db.prepare(`
-    SELECT id, name, paper_ids, created_at, updated_at
+    SELECT id, name, paper_ids, note_ids, created_at, updated_at
     FROM conversations
     ORDER BY updated_at DESC, created_at DESC
   `)
 
   const insertConversationStmt = database.db.prepare(`
     INSERT INTO conversations (
-      id, name, paper_ids, created_at, updated_at, sort_order
+      id, name, paper_ids, note_ids, created_at, updated_at, sort_order
     ) VALUES (
-      @id, @name, @paper_ids, @created_at, @updated_at, @sort_order
+      @id, @name, @paper_ids, @note_ids, @created_at, @updated_at, @sort_order
     )
   `)
 
   const getConversationStmt = database.db.prepare(`
-    SELECT id, name, paper_ids, created_at, updated_at
+    SELECT id, name, paper_ids, note_ids, created_at, updated_at
     FROM conversations
     WHERE id = ?
   `)
@@ -154,6 +170,7 @@ export function createAiService(database: DatabaseContext): AiService {
     UPDATE conversations
     SET name = @name,
         paper_ids = @paper_ids,
+        note_ids = @note_ids,
         updated_at = @updated_at
     WHERE id = @id
   `)
@@ -181,9 +198,15 @@ export function createAiService(database: DatabaseContext): AiService {
     WHERE id = ?
   `)
 
-  const listConversationPaperRefsStmt = database.db.prepare(
-    `SELECT id, name, paper_ids FROM conversations`
+  const listConversationContextRefsStmt = database.db.prepare(
+    `SELECT id, name, paper_ids, note_ids FROM conversations`
   )
+
+  const getNoteForContextStmt = database.db.prepare(`
+    SELECT id, paper_id, parent_id, title, content, is_group, sort_order, created_at, updated_at
+    FROM notes
+    WHERE id = ?
+  `)
 
   ensureBuiltinPresets()
   ensureActivePreset()
@@ -231,10 +254,12 @@ export function createAiService(database: DatabaseContext): AiService {
       const now = Date.now()
       const id = randomUUID()
       const paperIds = input.paperIds
+      const noteIds = input.noteIds ?? []
       insertConversationStmt.run({
         id,
-        name: input.name?.trim() || buildConversationName(paperIds.length),
+        name: input.name?.trim() || buildConversationName(paperIds.length, noteIds.length),
         paper_ids: JSON.stringify(paperIds),
+        note_ids: JSON.stringify(noteIds),
         created_at: now,
         updated_at: now,
         sort_order: now
@@ -255,6 +280,7 @@ export function createAiService(database: DatabaseContext): AiService {
         id: current.id,
         name: trimmed,
         paper_ids: current.paper_ids,
+        note_ids: current.note_ids ?? '[]',
         updated_at: Date.now()
       })
       return getConversationDetail(input.conversationId)
@@ -272,12 +298,30 @@ export function createAiService(database: DatabaseContext): AiService {
         id: current.id,
         name: current.name,
         paper_ids: JSON.stringify(input.paperIds),
+        note_ids: current.note_ids ?? '[]',
+        updated_at: Date.now()
+      })
+      return getConversationDetail(input.conversationId)
+    },
+    updateConversationNotes(input) {
+      const current = getConversationStmt.get(input.conversationId) as ConversationRow | undefined
+      if (!current) return null
+      updateConversationStmt.run({
+        id: current.id,
+        name: current.name,
+        paper_ids: current.paper_ids,
+        note_ids: JSON.stringify(input.noteIds),
         updated_at: Date.now()
       })
       return getConversationDetail(input.conversationId)
     },
     removePaperIdFromAllConversations(paperId) {
-      const rows = listConversationPaperRefsStmt.all() as { id: string; name: string; paper_ids: string }[]
+      const rows = listConversationContextRefsStmt.all() as {
+        id: string
+        name: string
+        paper_ids: string
+        note_ids: string
+      }[]
       const now = Date.now()
       for (const row of rows) {
         let ids: string[]
@@ -292,6 +336,33 @@ export function createAiService(database: DatabaseContext): AiService {
           id: row.id,
           name: row.name,
           paper_ids: JSON.stringify(next),
+          note_ids: row.note_ids ?? '[]',
+          updated_at: now
+        })
+      }
+    },
+    removeNoteIdFromAllConversations(noteId) {
+      const rows = listConversationContextRefsStmt.all() as {
+        id: string
+        name: string
+        paper_ids: string
+        note_ids: string
+      }[]
+      const now = Date.now()
+      for (const row of rows) {
+        let ids: string[]
+        try {
+          ids = JSON.parse(row.note_ids || '[]') as string[]
+        } catch {
+          continue
+        }
+        if (!Array.isArray(ids) || !ids.includes(noteId)) continue
+        const next = ids.filter((x) => x !== noteId)
+        updateConversationStmt.run({
+          id: row.id,
+          name: row.name,
+          paper_ids: row.paper_ids,
+          note_ids: JSON.stringify(next),
           updated_at: now
         })
       }
@@ -331,6 +402,7 @@ export function createAiService(database: DatabaseContext): AiService {
         id: updatedDetail.conversation.id,
         name: updatedDetail.conversation.name,
         paper_ids: JSON.stringify(updatedDetail.conversation.paperIds),
+        note_ids: JSON.stringify(updatedDetail.conversation.noteIds),
         updated_at: Date.now()
       })
 
@@ -403,10 +475,17 @@ export function createAiService(database: DatabaseContext): AiService {
       .map((paperId) => listPapersByIdsStmt.get(paperId) as PaperRow | undefined)
       .filter(Boolean)
       .map((row) => mapPaperSummary(row as PaperRow))
+    const contextNotes: NoteItem[] = []
+    for (const nid of mapped.noteIds) {
+      const nrow = getNoteForContextStmt.get(nid) as CtxNoteRow | undefined
+      if (!nrow || nrow.is_group === 1) continue
+      contextNotes.push(mapCtxNote(nrow))
+    }
     return {
       conversation: mapped,
       messages,
-      papers
+      papers,
+      contextNotes
     }
   }
 
@@ -458,18 +537,33 @@ export function createAiService(database: DatabaseContext): AiService {
       })
       .join('\n\n---\n\n')
 
+    const contextNotesBlock = detail.contextNotes
+      .map((note) => {
+        const excerpt = note.content ? `Content:\n${note.content.slice(0, 4000)}` : ''
+        return [`Note title: ${note.title}`, excerpt].filter(Boolean).join('\n')
+      })
+      .join('\n\n---\n\n')
+
     return [
       'You are an academic reading assistant inside PaperBox.',
-      'Use the selected papers as primary context when answering.',
+      'Use the selected papers and the user notebook excerpts as primary context when answering.',
       'If the context is missing information, say so clearly instead of inventing details.',
-      contextPapers ? `Selected paper context:\n\n${contextPapers}` : 'No paper context is attached to this conversation.'
-    ].join('\n\n')
+      contextPapers ? `Selected paper context:\n\n${contextPapers}` : 'No paper context is attached to this conversation.',
+      contextNotesBlock ? `Selected notebook entries (user notes):\n\n${contextNotesBlock}` : ''
+    ]
+      .filter(Boolean)
+      .join('\n\n')
   }
 }
 
 function renderConversationMarkdown(detail: ConversationDetail): string {
   const paperLine =
     detail.papers.length > 0 ? detail.papers.map((paper) => paper.title).join(', ') : 'No paper context attached'
+
+  const noteLine =
+    detail.contextNotes.length > 0
+      ? detail.contextNotes.map((note) => note.title).join(', ')
+      : 'No notes in context'
 
   const messageBlocks = detail.messages
     .map((message) => {
@@ -485,7 +579,9 @@ function renderConversationMarkdown(detail: ConversationDetail): string {
     })
     .join('\n\n')
 
-  return [`# ${detail.conversation.name}`, '', `Context Papers: ${paperLine}`, '', messageBlocks].join('\n')
+  return [`# ${detail.conversation.name}`, '', `Context papers: ${paperLine}`, `Context notes: ${noteLine}`, '', messageBlocks].join(
+    '\n'
+  )
 }
 
 function sanitizeFileName(name: string): string {
@@ -509,7 +605,8 @@ function mapConversation(row: ConversationRow): ConversationSummary {
   return {
     id: row.id,
     name: row.name,
-    paperIds: JSON.parse(row.paper_ids) as string[],
+    paperIds: parseJsonStringArray(row.paper_ids),
+    noteIds: parseJsonStringArray(row.note_ids),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   }
@@ -538,6 +635,33 @@ function mapPaperSummary(row: PaperRow): PaperSummary {
   }
 }
 
-function buildConversationName(paperCount: number): string {
-  return paperCount > 0 ? `Chat with ${paperCount} paper(s)` : 'New Conversation'
+function buildConversationName(paperCount: number, noteCount: number = 0): string {
+  if (paperCount > 0 && noteCount > 0) return `会话 · ${paperCount} 文献 · ${noteCount} 笔记`
+  if (paperCount > 0) return `Chat with ${paperCount} paper(s)`
+  if (noteCount > 0) return `会话 · ${noteCount} 条笔记`
+  return 'New Conversation'
+}
+
+function parseJsonStringArray(json: string | null | undefined): string[] {
+  if (json == null || json === '') return []
+  try {
+    const v = JSON.parse(json) as unknown
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function mapCtxNote(row: CtxNoteRow): NoteItem {
+  return {
+    id: row.id,
+    paperId: row.paper_id,
+    parentId: row.parent_id,
+    title: row.title,
+    content: row.content,
+    isGroup: row.is_group === 1,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
 }

@@ -113,6 +113,7 @@ export interface ConversationSummary {
   id: string
   name: string
   paperIds: string[]
+  noteIds: string[]
   createdAt: number
   updatedAt: number
 }
@@ -129,6 +130,8 @@ export interface ConversationDetail {
   conversation: ConversationSummary
   messages: ConversationMessage[]
   papers: PaperSummary[]
+  /** 已选入会话上下文的笔记（非分组），含正文供模型使用 */
+  contextNotes: NoteItem[]
 }
 
 export interface ExportConversationResult {

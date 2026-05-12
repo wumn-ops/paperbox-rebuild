@@ -250,6 +250,9 @@ export function App() {
   /** 文献列表勾选：加入会话上下文（可多选） */
   const [contextPaperSelection, setContextPaperSelection] = useState(() => new Set<string>())
   const paperListSelectAllRef = useRef<HTMLInputElement | null>(null)
+  /** 笔记（非分组）勾选：加入对话上下文 */
+  const [contextNoteSelection, setContextNoteSelection] = useState(() => new Set<string>())
+  const noteListSelectAllRef = useRef<HTMLInputElement | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
 
   const [aiSettings, setAiSettings] = useState<AiSettings>(emptyAiSettings)
@@ -295,6 +298,23 @@ export function App() {
     return { selectedOnPage, allDisplayedSelected, someDisplayedSelected, contextSelectionCount: contextPaperSelection.size }
   }, [displayedPaperIds, contextPaperSelection])
 
+  const noteContextSelectStats = useMemo(() => {
+    const selectableIds = notes.filter((n) => !n.isGroup).map((n) => n.id)
+    const idSet = new Set(selectableIds)
+    let selectedInScope = 0
+    for (const id of contextNoteSelection) {
+      if (idSet.has(id)) selectedInScope += 1
+    }
+    const allSelected = selectableIds.length > 0 && selectableIds.every((id) => contextNoteSelection.has(id))
+    const someSelected = selectedInScope > 0 && !allSelected
+    return {
+      selectableCount: selectableIds.length,
+      selectedInScope,
+      allSelected,
+      someSelected
+    }
+  }, [notes, contextNoteSelection])
+
   useEffect(() => {
     const visible = new Set(displayedPapers.map((p) => p.id))
     setContextPaperSelection((prev) => {
@@ -311,6 +331,23 @@ export function App() {
     const el = paperListSelectAllRef.current
     if (el) el.indeterminate = contextSelectStats.someDisplayedSelected
   }, [contextSelectStats.someDisplayedSelected, displayedPaperIds.length])
+
+  useEffect(() => {
+    const valid = new Set(notes.filter((n) => !n.isGroup).map((n) => n.id))
+    setContextNoteSelection((prev) => {
+      const next = new Set<string>()
+      for (const id of prev) {
+        if (valid.has(id)) next.add(id)
+      }
+      if (next.size === prev.size && [...prev].every((id) => next.has(id))) return prev
+      return next
+    })
+  }, [notes])
+
+  useEffect(() => {
+    const el = noteListSelectAllRef.current
+    if (el) el.indeterminate = noteContextSelectStats.someSelected
+  }, [noteContextSelectStats.someSelected, noteContextSelectStats.selectableCount])
 
   const activeNote = useMemo(() => notes.find((note) => note.id === selectedNoteId) ?? null, [notes, selectedNoteId])
   const noteDepthMap = useMemo(() => buildNoteDepthMap(notes), [notes])
@@ -722,6 +759,21 @@ export function App() {
     setContextPaperSelection(new Set())
   }
 
+  function toggleContextNoteSelection(noteId: string) {
+    setContextNoteSelection((prev) => {
+      const next = new Set(prev)
+      if (next.has(noteId)) next.delete(noteId)
+      else next.add(noteId)
+      return next
+    })
+  }
+
+  function toggleSelectAllNotesForContext() {
+    const selectableIds = notes.filter((n) => !n.isGroup).map((n) => n.id)
+    const allOn = selectableIds.length > 0 && selectableIds.every((id) => contextNoteSelection.has(id))
+    setContextNoteSelection(() => (allOn ? new Set() : new Set(selectableIds)))
+  }
+
   function paperIdsForConversationContext(): string[] {
     if (contextPaperSelection.size > 0) return Array.from(contextPaperSelection)
     if (selectedPaperId) return [selectedPaperId]
@@ -730,29 +782,42 @@ export function App() {
 
   async function handleCreateConversationFromSelectedPaper() {
     const paperIds = paperIdsForConversationContext()
+    const noteIds = notes.filter((n) => !n.isGroup && contextNoteSelection.has(n.id)).map((n) => n.id)
     let name = '新对话'
-    if (paperIds.length === 1) {
+    if (paperIds.length === 1 && noteIds.length === 0) {
       const title =
         papers.find((p) => p.id === paperIds[0])?.title ??
         displayedPapers.find((p) => p.id === paperIds[0])?.title ??
         selectedPaperTitleHint
       name = title ? `对话：${title}` : '新对话'
-    } else if (paperIds.length > 1) {
+    } else if (paperIds.length > 1 && noteIds.length === 0) {
       name = `对话：${paperIds.length} 篇文献`
+    } else if (paperIds.length === 0 && noteIds.length === 1) {
+      const t = notes.find((n) => n.id === noteIds[0])?.title
+      name = t ? `对话：${t}` : '新对话'
+    } else if (paperIds.length === 0 && noteIds.length > 1) {
+      name = `对话：${noteIds.length} 条笔记`
+    } else if (paperIds.length > 0 && noteIds.length > 0) {
+      name = `对话：${paperIds.length} 篇文献 · ${noteIds.length} 笔记`
     }
     const detail = await window.paperbox.createConversation({
       paperIds,
+      noteIds,
       name
     })
     await loadAiChrome()
     setSelectedConversationId(detail.conversation.id)
     setChatPaneOpen(true)
-    setStatusMessage(paperIds.length > 1 ? `已创建含 ${paperIds.length} 篇文献的对话` : '已创建对话')
+    const parts: string[] = []
+    if (paperIds.length > 0) parts.push(`${paperIds.length} 篇文献`)
+    if (noteIds.length > 0) parts.push(`${noteIds.length} 条笔记`)
+    setStatusMessage(parts.length > 0 ? `已创建对话（${parts.join('，')}）` : '已创建对话')
   }
 
   async function handleNewEmptyConversation() {
     const detail = await window.paperbox.createConversation({
       paperIds: [],
+      noteIds: [],
       name: '新对话'
     })
     await loadAiChrome()
@@ -1148,6 +1213,23 @@ export function App() {
     }
   }
 
+  async function handleAddNotesToConversation() {
+    if (!selectedConversationId) return
+    const noteIds = notes.filter((n) => !n.isGroup && contextNoteSelection.has(n.id)).map((n) => n.id)
+    if (noteIds.length === 0) return
+    const next = await window.paperbox.updateConversationNotes({
+      conversationId: selectedConversationId,
+      noteIds
+    })
+    if (next) {
+      setConversationDetail(next)
+      await loadAiChrome()
+      setStatusMessage(
+        noteIds.length > 1 ? `已将 ${noteIds.length} 条笔记设为会话上下文` : '已将所选笔记设为会话上下文'
+      )
+    }
+  }
+
   async function handleSendMessage() {
     if (!selectedConversationId || !chatInput.trim()) return
     setIsSendingMessage(true)
@@ -1519,6 +1601,7 @@ export function App() {
   }
 
   function renderChatDock() {
+    const selectedNoteContextCount = notes.filter((n) => !n.isGroup && contextNoteSelection.has(n.id)).length
     return (
       <div className="dock-inner">
         <div className="dock-header">
@@ -1541,7 +1624,9 @@ export function App() {
             </button>
           </div>
           <p className="muted" style={{ marginTop: 8 }}>
-            {conversationDetail ? `${conversationDetail.papers.length} 篇上下文文献` : '未选择会话'}
+            {conversationDetail
+              ? `${conversationDetail.papers.length} 篇文献 · ${conversationDetail.contextNotes.length} 条笔记`
+              : '未选择会话'}
           </p>
         </div>
 
@@ -1555,10 +1640,17 @@ export function App() {
         ) : (
           <>
             <div className="chat-context">
-              {conversationDetail.papers.length === 0 ? <span className="muted">未附加文献上下文。</span> : null}
+              {conversationDetail.papers.length === 0 && conversationDetail.contextNotes.length === 0 ? (
+                <span className="muted">未附加文献或笔记上下文。</span>
+              ) : null}
               {conversationDetail.papers.map((paper) => (
                 <span key={paper.id} className="context-pill" title={paper.title}>
                   {paper.title}
+                </span>
+              ))}
+              {conversationDetail.contextNotes.map((note) => (
+                <span key={note.id} className="context-pill context-pill-note" title={`笔记：${note.title}`}>
+                  {note.title}
                 </span>
               ))}
             </div>
@@ -1588,6 +1680,16 @@ export function App() {
                     : selectedPaperId
                       ? '将当前文献加入会话'
                       : '将文献加入会话'}
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  disabled={!selectedConversationId || selectedNoteContextCount === 0}
+                  onClick={() => void handleAddNotesToConversation()}
+                >
+                  {selectedNoteContextCount > 0
+                    ? `将所选 ${selectedNoteContextCount} 条笔记加入会话`
+                    : '将笔记加入会话'}
                 </button>
                 <button
                   className="ghost-button"
@@ -1638,12 +1740,26 @@ export function App() {
           </p>
         </div>
         <div className="note-dock-toolbar">
-          <button className="btn-icon" type="button" title="新建分组" onClick={() => setIsCreatingNoteGroup((v) => !v)}>
-            <FolderPlus size={16} />
-          </button>
-          <button className="btn-icon" type="button" title="新建笔记" onClick={() => setIsCreatingNote((v) => !v)}>
-            <LayoutGrid size={16} />
-          </button>
+          <div className="note-dock-toolbar-left">
+            <label className="note-toolbar-select-all">
+              <input
+                ref={noteListSelectAllRef}
+                type="checkbox"
+                disabled={noteContextSelectStats.selectableCount === 0}
+                checked={noteContextSelectStats.selectableCount > 0 && noteContextSelectStats.allSelected}
+                onChange={() => toggleSelectAllNotesForContext()}
+              />
+              <span>全选</span>
+            </label>
+          </div>
+          <div className="note-dock-toolbar-right">
+            <button className="btn-icon" type="button" title="新建分组" onClick={() => setIsCreatingNoteGroup((v) => !v)}>
+              <FolderPlus size={16} />
+            </button>
+            <button className="btn-icon" type="button" title="新建笔记" onClick={() => setIsCreatingNote((v) => !v)}>
+              <LayoutGrid size={16} />
+            </button>
+          </div>
         </div>
         {isCreatingNoteGroup || isCreatingNote ? (
           <div className="inline-create-dock">
@@ -1705,17 +1821,32 @@ export function App() {
             <div className="note-tree">
               {notes.length === 0 ? <p className="empty-state">暂无笔记</p> : null}
               {notes.map((note) => (
-                <button
+                <div
                   key={note.id}
-                  type="button"
-                  className={`note-tree-item ${note.id === selectedNoteId ? 'is-selected' : ''}`}
-                  style={{ paddingLeft: `${12 + (noteDepthMap.get(note.id) ?? 0) * 16}px` }}
-                  onClick={() => setSelectedNoteId(note.id)}
-                  onContextMenu={(event) => handleNoteContextMenu(event, note)}
+                  className={`note-tree-row ${note.id === selectedNoteId ? 'is-selected' : ''}`}
+                  style={{ paddingLeft: `${4 + (noteDepthMap.get(note.id) ?? 0) * 16}px` }}
                 >
-                  <span>{note.isGroup ? '＃' : '•'}</span>
-                  <span>{note.title}</span>
-                </button>
+                  {!note.isGroup ? (
+                    <input
+                      type="checkbox"
+                      className="note-context-checkbox"
+                      checked={contextNoteSelection.has(note.id)}
+                      onChange={() => toggleContextNoteSelection(note.id)}
+                      aria-label={`将笔记「${note.title}」加入对话上下文`}
+                    />
+                  ) : (
+                    <span className="note-context-checkbox-spacer" aria-hidden />
+                  )}
+                  <button
+                    type="button"
+                    className={`note-tree-item ${note.id === selectedNoteId ? 'is-selected' : ''}`}
+                    onClick={() => setSelectedNoteId(note.id)}
+                    onContextMenu={(event) => handleNoteContextMenu(event, note)}
+                  >
+                    <span>{note.isGroup ? '＃' : '•'}</span>
+                    <span className="note-tree-item-title">{note.title}</span>
+                  </button>
+                </div>
               ))}
             </div>
 
@@ -2070,7 +2201,9 @@ export function App() {
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {conversation.name}
                 </span>
-                <span className="conv-meta">{conversation.paperIds.length} 篇</span>
+                <span className="conv-meta">
+                  {conversation.paperIds.length} 篇 · {conversation.noteIds.length} 笔记
+                </span>
               </button>
             ))}
           </section>

@@ -45,7 +45,7 @@ export interface WorkspaceService {
   listNotes(paperId: string | null): NoteItem[]
   createNote(input: { paperId: string | null; parentId?: string | null; title: string; isGroup: boolean }): NoteItem
   updateNote(input: { id: string; title: string; content: string }): NoteItem | null
-  deleteNote(noteId: string): boolean
+  deleteNote(noteId: string): string[]
   setNoteParent(input: { noteId: string; parentId: string | null }): NoteItem | null
 }
 
@@ -294,7 +294,7 @@ export function createWorkspaceService(database: DatabaseContext): WorkspaceServ
     },
     deleteNote(noteId) {
       const root = getNoteStmt.get(noteId) as NoteRow | undefined
-      if (!root) return false
+      if (!root) return []
 
       const paperScope = root.paper_id
       const allRows = listNotesStmt.all({ paperId: paperScope }) as NoteRow[]
@@ -330,7 +330,7 @@ export function createWorkspaceService(database: DatabaseContext): WorkspaceServ
       for (const id of ordered) {
         deleteNoteByIdStmt.run(id)
       }
-      return true
+      return ordered
     },
     setNoteParent(input) {
       const row = getNoteStmt.get(input.noteId) as NoteRow | undefined

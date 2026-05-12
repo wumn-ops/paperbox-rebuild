@@ -121,7 +121,11 @@ app.whenReady().then(() => {
     'workspace:update-note',
     async (_event, input: { id: string; title: string; content: string }) => workspace.updateNote(input)
   )
-  ipcMain.handle('workspace:delete-note', async (_event, noteId: string) => workspace.deleteNote(noteId))
+  ipcMain.handle('workspace:delete-note', async (_event, noteId: string) => {
+    const removed = workspace.deleteNote(noteId)
+    for (const id of removed) ai.removeNoteIdFromAllConversations(id)
+    return removed.length > 0
+  })
   ipcMain.handle(
     'workspace:set-note-parent',
     async (_event, input: { noteId: string; parentId: string | null }) => workspace.setNoteParent(input)
@@ -137,8 +141,9 @@ app.whenReady().then(() => {
   )
   ipcMain.handle('ai:set-active-preset', async (_event, id: string) => ai.setActivePreset(id))
   ipcMain.handle('ai:list-conversations', async () => ai.listConversations())
-  ipcMain.handle('ai:create-conversation', async (_event, input: { name?: string; paperIds: string[] }) =>
-    ai.createConversation(input)
+  ipcMain.handle(
+    'ai:create-conversation',
+    async (_event, input: { name?: string; paperIds: string[]; noteIds?: string[] }) => ai.createConversation(input)
   )
   ipcMain.handle('ai:get-conversation', async (_event, id: string) => ai.getConversation(id))
   ipcMain.handle('ai:rename-conversation', async (_event, input: { conversationId: string; name: string }) =>
@@ -147,6 +152,9 @@ app.whenReady().then(() => {
   ipcMain.handle('ai:delete-conversation', async (_event, conversationId: string) => ai.deleteConversation(conversationId))
   ipcMain.handle('ai:update-conversation-papers', async (_event, input: { conversationId: string; paperIds: string[] }) =>
     ai.updateConversationPapers(input)
+  )
+  ipcMain.handle('ai:update-conversation-notes', async (_event, input: { conversationId: string; noteIds: string[] }) =>
+    ai.updateConversationNotes(input)
   )
   ipcMain.handle('ai:send-message', async (_event, input: { conversationId: string; content: string }) =>
     ai.sendMessage(input)

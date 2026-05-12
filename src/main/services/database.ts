@@ -12,5 +12,10 @@ export function createDatabase(dbPath: string): DatabaseContext {
   db.pragma('foreign_keys = ON')
   db.exec(schema)
 
+  const cols = db.prepare(`PRAGMA table_info(conversations)`).all() as { name: string }[]
+  if (!cols.some((c) => c.name === 'note_ids')) {
+    db.exec(`ALTER TABLE conversations ADD COLUMN note_ids TEXT NOT NULL DEFAULT '[]'`)
+  }
+
   return { db, dbPath }
 }

@@ -56,7 +56,7 @@ const api = {
     ipcRenderer.invoke('ai:save-preset', input) as Promise<AiSettings>,
   setActiveAiPreset: (id: string) => ipcRenderer.invoke('ai:set-active-preset', id) as Promise<AiSettings>,
   listConversations: () => ipcRenderer.invoke('ai:list-conversations') as Promise<ConversationSummary[]>,
-  createConversation: (input: { name?: string; paperIds: string[] }) =>
+  createConversation: (input: { name?: string; paperIds: string[]; noteIds?: string[] }) =>
     ipcRenderer.invoke('ai:create-conversation', input) as Promise<ConversationDetail>,
   getConversation: (id: string) => ipcRenderer.invoke('ai:get-conversation', id) as Promise<ConversationDetail | null>,
   renameConversation: (input: { conversationId: string; name: string }) =>
@@ -65,6 +65,8 @@ const api = {
     ipcRenderer.invoke('ai:delete-conversation', conversationId) as Promise<boolean>,
   updateConversationPapers: (input: { conversationId: string; paperIds: string[] }) =>
     ipcRenderer.invoke('ai:update-conversation-papers', input) as Promise<ConversationDetail | null>,
+  updateConversationNotes: (input: { conversationId: string; noteIds: string[] }) =>
+    ipcRenderer.invoke('ai:update-conversation-notes', input) as Promise<ConversationDetail | null>,
   sendAiMessage: (input: { conversationId: string; content: string }) =>
     ipcRenderer.invoke('ai:send-message', input) as Promise<ConversationDetail>,
   exportConversation: (conversationId: string) =>

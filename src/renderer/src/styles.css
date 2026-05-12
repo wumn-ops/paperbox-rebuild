@@ -1174,11 +1174,93 @@ button.paper-item {
 .note-dock-toolbar {
   flex-shrink: 0;
   display: flex;
-  justify-content: flex-end;
-  gap: 6px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
   padding: 8px 14px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+}
+
+.note-dock-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.note-dock-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.note-toolbar-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.note-toolbar-select-all input {
+  margin: 0;
+}
+
+.note-tree-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  width: 100%;
+  border-radius: 8px;
+}
+
+.note-tree-row.is-selected .note-tree-item,
+.note-tree-row.is-selected {
+  background: var(--link-soft);
+}
+
+.note-tree-row:not(.is-selected):hover .note-tree-item {
+  background: var(--link-soft);
+}
+
+.note-context-checkbox {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 10px 0 0 4px;
+  align-self: flex-start;
+  cursor: pointer;
+}
+
+.note-context-checkbox-spacer {
+  flex-shrink: 0;
+  width: 20px;
+}
+
+.note-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  font-size: 13px;
+}
+
+.note-tree-item.is-selected,
+.note-tree-item:hover {
+  background: transparent;
 }
 
 .notes-dock-body {
@@ -1203,6 +1285,11 @@ button.paper-item {
   }
 }
 
+.context-pill-note {
+  border-style: dashed;
+  opacity: 0.95;
+}
+
 .note-tree {
   padding: 10px;
   border-bottom: 1px solid var(--border);
@@ -1210,23 +1297,11 @@ button.paper-item {
   min-height: 0;
 }
 
-.note-tree-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 8px;
-  color: var(--text);
-  text-align: left;
-  background: transparent;
-  font-size: 13px;
-}
-
-.note-tree-item.is-selected,
-.note-tree-item:hover {
-  background: var(--link-soft);
+.note-tree-item-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .note-editor {

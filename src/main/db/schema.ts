@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   id         TEXT PRIMARY KEY,
   name       TEXT NOT NULL,
   paper_ids  TEXT NOT NULL DEFAULT '[]',
+  note_ids   TEXT NOT NULL DEFAULT '[]',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
   sort_order INTEGER NOT NULL DEFAULT 0
