@@ -22,6 +22,8 @@ declare global {
       getPaperDetail: (id: string) => Promise<PaperDetail | null>
       importPapers: () => Promise<ImportPapersResult>
       saveAiSummary: (input: { paperId: string; summary: string }) => Promise<PaperDetail | null>
+      renamePaper: (input: { paperId: string; title: string }) => Promise<PaperDetail | null>
+      deletePaper: (paperId: string) => Promise<boolean>
       listFolders: () => Promise<FolderItem[]>
       createFolder: (input: { name: string; parentId?: string | null }) => Promise<FolderItem>
       renameFolder: (input: { folderId: string; name: string }) => Promise<FolderItem | null>

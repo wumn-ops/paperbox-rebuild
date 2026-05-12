@@ -79,11 +79,13 @@ type AppContextMenuState =
   | { kind: 'conversation'; x: number; y: number; conversationId: string }
   | { kind: 'folder'; x: number; y: number; folderId: string }
   | { kind: 'tag'; x: number; y: number; tagId: string }
+  | { kind: 'paper'; x: number; y: number; paperId: string }
 
 type RenameDialogState =
   | { kind: 'conversation'; conversationId: string; title: string }
   | { kind: 'folder'; folderId: string; title: string }
   | { kind: 'tag'; tagId: string; title: string }
+  | { kind: 'paper'; paperId: string; title: string }
 
 const RECENT_MS = 14 * 24 * 60 * 60 * 1000
 const CONV_MENU_W = 168
@@ -317,7 +319,9 @@ export function App() {
         ? `c:${renameDialog.conversationId}`
         : renameDialog.kind === 'folder'
           ? `f:${renameDialog.folderId}`
-          : `t:${renameDialog.tagId}`
+          : renameDialog.kind === 'tag'
+            ? `t:${renameDialog.tagId}`
+            : `p:${renameDialog.paperId}`
     const isFirstOpen = renameDialogFocusKeyRef.current !== key
     renameDialogFocusKeyRef.current = key
     if (isFirstOpen) {
@@ -733,6 +737,13 @@ export function App() {
     setContextMenu({ kind: 'tag', x, y, tagId })
   }
 
+  function handlePaperContextMenu(event: React.MouseEvent, paperId: string) {
+    event.preventDefault()
+    event.stopPropagation()
+    const { x, y } = clampConvMenuPosition(event.clientX, event.clientY)
+    setContextMenu({ kind: 'paper', x, y, paperId })
+  }
+
   function openRenameConversation(conversationId: string) {
     const conv = conversations.find((c) => c.id === conversationId)
     setContextMenu(null)
@@ -749,6 +760,13 @@ export function App() {
     const tag = tags.find((t) => t.id === tagId)
     setContextMenu(null)
     setRenameDialog({ kind: 'tag', tagId, title: tag?.name ?? '' })
+  }
+
+  function openRenamePaper(paperId: string) {
+    const paper =
+      displayedPapers.find((p) => p.id === paperId) ?? papers.find((p) => p.id === paperId)
+    setContextMenu(null)
+    setRenameDialog({ kind: 'paper', paperId, title: paper?.title ?? '' })
   }
 
   async function handleConfirmRename() {
@@ -787,20 +805,36 @@ export function App() {
         setStatusMessage('已重命名文件夹')
         return
       }
-      const tagId = renameDialog.tagId
-      const updated = await window.paperbox.renameTag({ tagId, name: title })
-      setRenameDialog(null)
-      if (!updated) {
-        setStatusMessage('未找到该标签')
+      if (renameDialog.kind === 'tag') {
+        const tagId = renameDialog.tagId
+        const updated = await window.paperbox.renameTag({ tagId, name: title })
+        setRenameDialog(null)
+        if (!updated) {
+          setStatusMessage('未找到该标签')
+          await loadWorkspaceChrome()
+          return
+        }
         await loadWorkspaceChrome()
+        if (selectedPaperId) {
+          const detail = await window.paperbox.getPaperDetail(selectedPaperId)
+          setSelectedPaper(detail)
+        }
+        setStatusMessage('已重命名标签')
         return
       }
-      await loadWorkspaceChrome()
-      if (selectedPaperId) {
-        const detail = await window.paperbox.getPaperDetail(selectedPaperId)
-        setSelectedPaper(detail)
+      const paperId = renameDialog.paperId
+      const updatedPaper = await window.paperbox.renamePaper({ paperId, title })
+      setRenameDialog(null)
+      if (!updatedPaper) {
+        setStatusMessage('未找到该文献')
+        await loadLibrary(activeQuery)
+        return
       }
-      setStatusMessage('已重命名标签')
+      await loadLibrary(activeQuery)
+      if (selectedPaperId === paperId) {
+        setSelectedPaper(updatedPaper)
+      }
+      setStatusMessage('已重命名文献')
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '重命名失败')
     }
@@ -892,6 +926,44 @@ export function App() {
         setSelectedPaper(detail)
       }
       setStatusMessage('已删除标签')
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : '删除失败')
+    }
+  }
+
+  async function handleDeletePaperById(paperId: string) {
+    const paper = displayedPapers.find((p) => p.id === paperId) ?? papers.find((p) => p.id === paperId)
+    const ok = window.confirm(
+      paper
+        ? `确定删除文献「${paper.title}」？将删除库内文件与关联数据，且无法恢复。`
+        : '确定删除该文献？'
+    )
+    if (!ok) return
+    setContextMenu(null)
+    try {
+      const deleted = await window.paperbox.deletePaper(paperId)
+      if (!deleted) {
+        setStatusMessage('未找到该文献')
+        await loadLibrary(activeQuery)
+        return
+      }
+      setContextPaperSelection((prev) => {
+        const next = new Set(prev)
+        next.delete(paperId)
+        return next
+      })
+      if (selectedPaperId === paperId) {
+        setSelectedPaperId(null)
+        setSelectedPaper(null)
+        setPaperDetailOpen(false)
+      }
+      await loadLibrary(activeQuery)
+      await loadAiChrome()
+      if (selectedConversationId) {
+        const detail = await window.paperbox.getConversation(selectedConversationId)
+        setConversationDetail(detail)
+      }
+      setStatusMessage('已删除文献')
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : '删除失败')
     }
@@ -1050,7 +1122,7 @@ export function App() {
               <p className="muted">{librarySubtitle}</p>
               {displayedPapers.length > 0 ? (
                 <p className="muted list-panel-hint">
-                  点击条目在右侧展开文献详情；勾选左侧可一次将多篇文献加入会话上下文。
+                  点击条目在右侧展开文献详情；勾选左侧可一次将多篇文献加入会话上下文。在条目上右键可重命名或删除文献。
                 </p>
               ) : null}
             </div>
@@ -1110,7 +1182,11 @@ export function App() {
               </p>
             ) : null}
             {displayedPapers.map((paper) => (
-              <div key={paper.id} className="paper-list-row">
+              <div
+                key={paper.id}
+                className="paper-list-row"
+                onContextMenu={(event) => handlePaperContextMenu(event, paper.id)}
+              >
                 <input
                   type="checkbox"
                   className="paper-select-checkbox"
@@ -1979,7 +2055,8 @@ export function App() {
             onClick={() => {
               if (contextMenu.kind === 'conversation') openRenameConversation(contextMenu.conversationId)
               else if (contextMenu.kind === 'folder') openRenameFolder(contextMenu.folderId)
-              else openRenameTag(contextMenu.tagId)
+              else if (contextMenu.kind === 'tag') openRenameTag(contextMenu.tagId)
+              else openRenamePaper(contextMenu.paperId)
             }}
           >
             重命名
@@ -1991,7 +2068,8 @@ export function App() {
             onClick={() => {
               if (contextMenu.kind === 'conversation') void handleDeleteConversationById(contextMenu.conversationId)
               else if (contextMenu.kind === 'folder') void handleDeleteFolderById(contextMenu.folderId)
-              else void handleDeleteTagById(contextMenu.tagId)
+              else if (contextMenu.kind === 'tag') void handleDeleteTagById(contextMenu.tagId)
+              else void handleDeletePaperById(contextMenu.paperId)
             }}
           >
             删除
@@ -2013,10 +2091,12 @@ export function App() {
                 ? '重命名会话'
                 : renameDialog.kind === 'folder'
                   ? '重命名文件夹'
-                  : '重命名标签'}
+                  : renameDialog.kind === 'tag'
+                    ? '重命名标签'
+                    : '重命名文献'}
             </h3>
             <label className="field-label" htmlFor="rename-entity-input">
-              名称
+              {renameDialog.kind === 'paper' ? '标题' : '名称'}
             </label>
             <input
               id="rename-entity-input"

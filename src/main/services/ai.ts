@@ -88,6 +88,7 @@ export interface AiService {
   renameConversation(input: { conversationId: string; name: string }): ConversationDetail | null
   deleteConversation(conversationId: string): boolean
   updateConversationPapers(input: { conversationId: string; paperIds: string[] }): ConversationDetail | null
+  removePaperIdFromAllConversations(paperId: string): void
   sendMessage(input: { conversationId: string; content: string }): Promise<ConversationDetail>
   exportConversation(conversationId: string): Promise<ExportConversationResult | null>
 }
@@ -180,6 +181,10 @@ export function createAiService(database: DatabaseContext): AiService {
     WHERE id = ?
   `)
 
+  const listConversationPaperRefsStmt = database.db.prepare(
+    `SELECT id, name, paper_ids FROM conversations`
+  )
+
   ensureBuiltinPresets()
   ensureActivePreset()
 
@@ -270,6 +275,26 @@ export function createAiService(database: DatabaseContext): AiService {
         updated_at: Date.now()
       })
       return getConversationDetail(input.conversationId)
+    },
+    removePaperIdFromAllConversations(paperId) {
+      const rows = listConversationPaperRefsStmt.all() as { id: string; name: string; paper_ids: string }[]
+      const now = Date.now()
+      for (const row of rows) {
+        let ids: string[]
+        try {
+          ids = JSON.parse(row.paper_ids) as string[]
+        } catch {
+          continue
+        }
+        if (!Array.isArray(ids) || !ids.includes(paperId)) continue
+        const next = ids.filter((x) => x !== paperId)
+        updateConversationStmt.run({
+          id: row.id,
+          name: row.name,
+          paper_ids: JSON.stringify(next),
+          updated_at: now
+        })
+      }
     },
     async sendMessage(input) {
       const detail = getConversationDetail(input.conversationId)

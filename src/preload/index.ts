@@ -23,6 +23,9 @@ const api = {
   importPapers: () => ipcRenderer.invoke('library:import-papers') as Promise<ImportPapersResult>,
   saveAiSummary: (input: { paperId: string; summary: string }) =>
     ipcRenderer.invoke('library:save-ai-summary', input) as Promise<PaperDetail | null>,
+  renamePaper: (input: { paperId: string; title: string }) =>
+    ipcRenderer.invoke('library:rename-paper', input) as Promise<PaperDetail | null>,
+  deletePaper: (paperId: string) => ipcRenderer.invoke('library:delete-paper', paperId) as Promise<boolean>,
   listFolders: () => ipcRenderer.invoke('workspace:list-folders') as Promise<FolderItem[]>,
   createFolder: (input: { name: string; parentId?: string | null }) =>
     ipcRenderer.invoke('workspace:create-folder', input) as Promise<FolderItem>,

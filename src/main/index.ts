@@ -59,6 +59,14 @@ app.whenReady().then(() => {
   ipcMain.handle('library:save-ai-summary', async (_event, input: { paperId: string; summary: string }) =>
     library.saveAiSummary(input)
   )
+  ipcMain.handle('library:rename-paper', async (_event, input: { paperId: string; title: string }) =>
+    library.renamePaper(input)
+  )
+  ipcMain.handle('library:delete-paper', async (_event, paperId: string) => {
+    const ok = library.deletePaper(paperId)
+    if (ok) ai.removePaperIdFromAllConversations(paperId)
+    return ok
+  })
 
   ipcMain.handle('workspace:list-folders', async () => workspace.listFolders())
   ipcMain.handle('workspace:create-folder', async (_event, input: { name: string; parentId?: string | null }) =>

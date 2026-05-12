@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
@@ -49,6 +49,8 @@ export interface LibraryService {
   queryPapers(query: LibraryQuery): PaperSummary[]
   getPaperDetail(id: string): PaperDetail | null
   saveAiSummary(input: { paperId: string; summary: string }): PaperDetail | null
+  renamePaper(input: { paperId: string; title: string }): PaperDetail | null
+  deletePaper(paperId: string): boolean
 }
 
 export function createLibraryService(
@@ -241,6 +243,17 @@ export function createLibraryService(
     WHERE id = ?
   `)
 
+  const updatePaperTitleStmt = database.db.prepare(`
+    UPDATE papers
+    SET title = @title,
+        updated_at = @updated_at
+    WHERE id = @id
+  `)
+
+  const deletePaperFtsStmt = database.db.prepare(`DELETE FROM papers_fts WHERE paper_id = ?`)
+  const deletePaperStmt = database.db.prepare(`DELETE FROM papers WHERE id = ?`)
+  const getPaperFilePathStmt = database.db.prepare(`SELECT file_path FROM papers WHERE id = ?`)
+
   return {
     filesDir: options.filesDir,
     async importPapers() {
@@ -361,6 +374,40 @@ export function createLibraryService(
       updateAiSummaryStmt.run(input.summary, Date.now(), input.paperId)
       const row = getPaperDetailStmt.get(input.paperId) as PaperRow | undefined
       return row ? mapDetail(row) : null
+    },
+    renamePaper(input) {
+      const trimmed = input.title.trim()
+      if (!trimmed) {
+        throw new Error('文献标题不能为空')
+      }
+      const now = Date.now()
+      updatePaperTitleStmt.run({ id: input.paperId, title: trimmed, updated_at: now })
+      deletePaperFtsStmt.run(input.paperId)
+      const row = getPaperDetailStmt.get(input.paperId) as PaperRow | undefined
+      if (!row) {
+        throw new Error('文献不存在')
+      }
+      insertPaperFtsStmt.run(
+        row.id,
+        row.title,
+        row.authors ?? '',
+        row.abstract ?? '',
+        row.keywords ?? '',
+        row.file_content ?? ''
+      )
+      return mapDetail(row)
+    },
+    deletePaper(paperId) {
+      const pathRow = getPaperFilePathStmt.get(paperId) as { file_path: string } | undefined
+      if (!pathRow) return false
+      deletePaperFtsStmt.run(paperId)
+      const result = deletePaperStmt.run(paperId)
+      try {
+        unlinkSync(pathRow.file_path)
+      } catch {
+        /* 文件已不存在时忽略 */
+      }
+      return result.changes > 0
     }
   }
 }
