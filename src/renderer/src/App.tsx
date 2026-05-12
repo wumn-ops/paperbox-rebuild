@@ -30,6 +30,51 @@ import type {
 type MainView = 'library' | 'settings'
 type LibraryNav = 'all' | 'recent' | 'tags'
 
+type SplitterKind = 'sidebar' | 'mainChat' | 'mainNotes' | 'chatNotes' | 'libraryList'
+
+type LayoutWidths = {
+  sidebarPx: number
+  libraryListPx: number
+  chatDockPx: number
+  notesDockPx: number
+}
+
+const LAYOUT_STORAGE_KEY = 'paperbox-layout-widths-v1'
+
+const LAYOUT_DEFAULTS: LayoutWidths = {
+  sidebarPx: 252,
+  libraryListPx: 300,
+  chatDockPx: 308,
+  notesDockPx: 328
+}
+
+const LAYOUT_MIN = { sidebar: 196, libraryList: 220, chat: 220, notes: 220 }
+const LAYOUT_MAX = { sidebar: 520, libraryList: 640, chat: 680, notes: 680 }
+
+function clampSize(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n))
+}
+
+function loadLayoutWidths(): LayoutWidths {
+  try {
+    const raw = localStorage.getItem(LAYOUT_STORAGE_KEY)
+    if (!raw) return { ...LAYOUT_DEFAULTS }
+    const p = JSON.parse(raw) as Partial<LayoutWidths>
+    return {
+      sidebarPx: clampSize(Number(p.sidebarPx) || LAYOUT_DEFAULTS.sidebarPx, LAYOUT_MIN.sidebar, LAYOUT_MAX.sidebar),
+      libraryListPx: clampSize(
+        Number(p.libraryListPx) || LAYOUT_DEFAULTS.libraryListPx,
+        LAYOUT_MIN.libraryList,
+        LAYOUT_MAX.libraryList
+      ),
+      chatDockPx: clampSize(Number(p.chatDockPx) || LAYOUT_DEFAULTS.chatDockPx, LAYOUT_MIN.chat, LAYOUT_MAX.chat),
+      notesDockPx: clampSize(Number(p.notesDockPx) || LAYOUT_DEFAULTS.notesDockPx, LAYOUT_MIN.notes, LAYOUT_MAX.notes)
+    }
+  } catch {
+    return { ...LAYOUT_DEFAULTS }
+  }
+}
+
 type ConversationContextMenuState = { x: number; y: number; conversationId: string }
 
 const RECENT_MS = 14 * 24 * 60 * 60 * 1000
@@ -129,6 +174,9 @@ export function App() {
   const convContextMenuRef = useRef<HTMLDivElement | null>(null)
   const renameTitleInputRef = useRef<HTMLInputElement | null>(null)
   const renameSessionOpenedForIdRef = useRef<string | null>(null)
+  const layoutDragRef = useRef<{ kind: SplitterKind; lastX: number } | null>(null)
+
+  const [layoutWidths, setLayoutWidths] = useState<LayoutWidths>(loadLayoutWidths)
 
   const [bootstrap, setBootstrap] = useState<BootstrapData | null>(null)
   const [papers, setPapers] = useState<PaperSummary[]>([])
@@ -233,6 +281,65 @@ export function App() {
       })
     }
   }, [renameDialog])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layoutWidths))
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, [layoutWidths])
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const d = layoutDragRef.current
+      if (!d) return
+      const dx = e.clientX - d.lastX
+      d.lastX = e.clientX
+      setLayoutWidths((w) => {
+        switch (d!.kind) {
+          case 'sidebar':
+            return { ...w, sidebarPx: clampSize(w.sidebarPx + dx, LAYOUT_MIN.sidebar, LAYOUT_MAX.sidebar) }
+          case 'mainChat':
+            return { ...w, chatDockPx: clampSize(w.chatDockPx - dx, LAYOUT_MIN.chat, LAYOUT_MAX.chat) }
+          case 'mainNotes':
+            return { ...w, notesDockPx: clampSize(w.notesDockPx - dx, LAYOUT_MIN.notes, LAYOUT_MAX.notes) }
+          case 'chatNotes': {
+            return {
+              ...w,
+              notesDockPx: clampSize(w.notesDockPx - dx, LAYOUT_MIN.notes, LAYOUT_MAX.notes),
+              chatDockPx: clampSize(w.chatDockPx + dx, LAYOUT_MIN.chat, LAYOUT_MAX.chat)
+            }
+          }
+          case 'libraryList':
+            return {
+              ...w,
+              libraryListPx: clampSize(w.libraryListPx + dx, LAYOUT_MIN.libraryList, LAYOUT_MAX.libraryList)
+            }
+          default:
+            return w
+        }
+      })
+    }
+    const onUp = () => {
+      layoutDragRef.current = null
+      document.body.style.removeProperty('cursor')
+      document.body.style.removeProperty('user-select')
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [])
+
+  function beginLayoutDrag(kind: SplitterKind, e: React.MouseEvent) {
+    e.preventDefault()
+    layoutDragRef.current = { kind, lastX: e.clientX }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
 
   async function loadWorkspaceChrome() {
     try {
@@ -695,7 +802,14 @@ export function App() {
     const showDetailColumn = paperDetailOpen && Boolean(selectedPaperId)
 
     return (
-      <section className={`library-layout ${showDetailColumn ? 'has-detail-open' : ''}`}>
+      <section
+        className={`library-layout ${showDetailColumn ? 'has-detail-open' : ''}`}
+        style={
+          showDetailColumn
+            ? { gridTemplateColumns: `${layoutWidths.libraryListPx}px 6px minmax(0, 1fr)` }
+            : undefined
+        }
+      >
         <div className="panel list-panel">
           <div className="panel-header library-panel-header">
             <div className="library-workbench-top">
@@ -772,7 +886,15 @@ export function App() {
         </div>
 
         {showDetailColumn ? (
-          <div className="panel detail-panel">
+          <>
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整列表与详情宽度"
+              className="splitter-v"
+              onMouseDown={(e) => beginLayoutDrag('libraryList', e)}
+            />
+            <div className="panel detail-panel">
             {isLoadingDetail ? <p className="empty-state">加载详情…</p> : null}
             {!isLoadingDetail && !selectedPaper ? (
               <div className="empty-detail">
@@ -894,7 +1016,8 @@ export function App() {
               </section>
             </>
             ) : null}
-          </div>
+            </div>
+          </>
         ) : null}
       </section>
     )
@@ -1271,7 +1394,14 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside
+        className="sidebar"
+        style={{
+          width: layoutWidths.sidebarPx,
+          minWidth: layoutWidths.sidebarPx,
+          maxWidth: layoutWidths.sidebarPx
+        }}
+      >
         <div className="brand">
           <h1 className="brand-title">PaperBox</h1>
           <p className="brand-sub">本地文献与 AI 研究工作台</p>
@@ -1485,6 +1615,14 @@ export function App() {
         </div>
       </aside>
 
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整侧栏宽度"
+        className="splitter-v"
+        onMouseDown={(e) => beginLayoutDrag('sidebar', e)}
+      />
+
       <main className="main-stage">
         <div className="main-stage-inner">
           {mainView === 'settings' ? (
@@ -1508,11 +1646,57 @@ export function App() {
         </div>
       </main>
 
-      <aside className={`dock dock-chat ${chatPaneOpen ? 'is-open' : 'is-closed'}`} aria-hidden={!chatPaneOpen}>
+      {chatPaneOpen ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整对话栏宽度"
+          className="splitter-v"
+          onMouseDown={(e) => beginLayoutDrag('mainChat', e)}
+        />
+      ) : null}
+
+      <aside
+        className={`dock dock-chat ${chatPaneOpen ? 'is-open' : 'is-closed'}`}
+        style={
+          chatPaneOpen
+            ? { width: layoutWidths.chatDockPx, minWidth: layoutWidths.chatDockPx }
+            : undefined
+        }
+        aria-hidden={!chatPaneOpen}
+      >
         {renderChatDock()}
       </aside>
 
-      <aside className={`dock dock-notes ${notebookPaneOpen ? 'is-open' : 'is-closed'}`} aria-hidden={!notebookPaneOpen}>
+      {chatPaneOpen && notebookPaneOpen ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整对话与笔记本分栏宽度"
+          className="splitter-v"
+          onMouseDown={(e) => beginLayoutDrag('chatNotes', e)}
+        />
+      ) : null}
+
+      {!chatPaneOpen && notebookPaneOpen ? (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整笔记本栏宽度"
+          className="splitter-v"
+          onMouseDown={(e) => beginLayoutDrag('mainNotes', e)}
+        />
+      ) : null}
+
+      <aside
+        className={`dock dock-notes ${notebookPaneOpen ? 'is-open' : 'is-closed'}`}
+        style={
+          notebookPaneOpen
+            ? { width: layoutWidths.notesDockPx, minWidth: layoutWidths.notesDockPx }
+            : undefined
+        }
+        aria-hidden={!notebookPaneOpen}
+      >
         {renderNotesDock()}
       </aside>
 

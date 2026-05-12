@@ -71,7 +71,6 @@ body,
 }
 
 .sidebar {
-  width: 252px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -81,6 +80,26 @@ body,
   background: var(--surface);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
+}
+
+.splitter-v {
+  flex: 0 0 6px;
+  width: 6px;
+  min-width: 6px;
+  margin-left: -3px;
+  margin-right: -3px;
+  z-index: 2;
+  cursor: col-resize;
+  background: transparent;
+  align-self: stretch;
+}
+
+.splitter-v:hover {
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.splitter-v:active {
+  background: rgba(37, 99, 235, 0.22);
 }
 
 .sidebar-scroll {
@@ -425,9 +444,7 @@ p {
   gap: 16px;
 }
 
-.library-layout.has-detail-open {
-  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
-}
+/* .library-layout.has-detail-open：仅作标记，列宽由内联 style 与下方 @media 控制 */
 
 .list-panel-hint {
   margin: 8px 0 0;
@@ -912,23 +929,15 @@ p {
   background: var(--surface);
   border-left: 1px solid var(--border);
   box-shadow: -4px 0 24px rgba(15, 23, 42, 0.04);
-  transition:
-    width 0.2s ease,
-    min-width 0.2s ease,
-    opacity 0.18s ease,
-    border-width 0.2s ease;
+  transition: opacity 0.18s ease, border-width 0.15s ease;
   overflow: hidden;
 }
 
 .dock.is-open.dock-chat {
-  width: var(--dock-chat-w);
-  min-width: var(--dock-chat-w);
   opacity: 1;
 }
 
 .dock.is-open.dock-notes {
-  width: var(--dock-notes-w);
-  min-width: var(--dock-notes-w);
   opacity: 1;
 }
 
@@ -1143,7 +1152,11 @@ p {
 
 @media (max-width: 1100px) {
   .library-layout.has-detail-open {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr !important;
+  }
+
+  .library-layout.has-detail-open > .splitter-v {
+    display: none;
   }
 
   .detail-panel {
@@ -1226,15 +1239,21 @@ p {
     flex-direction: column;
   }
 
+  .splitter-v {
+    display: none;
+  }
+
   .sidebar {
-    width: 100%;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
     max-height: 40vh;
   }
 
   .dock.is-open.dock-chat,
   .dock.is-open.dock-notes {
-    width: 100%;
-    min-width: 100%;
+    width: 100% !important;
+    min-width: 0 !important;
     max-height: 45vh;
   }
 }
