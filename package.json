@@ -11,7 +11,8 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "rebuild:electron": "npx @electron/rebuild -f -w better-sqlite3",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pack:win": "npm run build && npm run rebuild:electron && electron-builder --win --x64"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -30,15 +31,52 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@electron/rebuild": "^3.7.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.3.0",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
-    "@electron/rebuild": "^3.7.1",
     "@vitejs/plugin-react": "^5.0.2",
     "electron": "^37.2.0",
+    "electron-builder": "^25.1.8",
     "electron-vite": "^3.1.0",
     "typescript": "^5.9.2",
     "vite": "^6.3.5"
+  },
+  "build": {
+    "appId": "com.paperbox.rebuild",
+    "productName": "PaperBox Rebuild",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "**/better-sqlite3/**"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "verifyUpdateCodeSignature": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerLanguages": [
+        "zh_CN",
+        "en_US"
+      ],
+      "language": "2052"
+    }
   }
 }
