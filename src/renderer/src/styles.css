@@ -78,7 +78,6 @@ body,
   padding: 20px 14px;
   border-right: 1px solid var(--border);
   background: var(--surface);
-  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 
@@ -352,14 +351,14 @@ p {
   padding: 8px 0 0;
 }
 
-/* Main stage */
+/* Main stage — 与 dock 一致为白底通栏，不分「灰底卡片区」 */
 .main-stage {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--bg-app);
+  background: var(--surface);
 }
 
 .main-stage-inner {
@@ -367,9 +366,16 @@ p {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+/* 设置页保留内边距与滚动 */
+.main-stage-inner--settings {
   padding: 20px 22px;
   gap: 14px;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .workspace-header {
@@ -435,7 +441,7 @@ p {
   font-size: 13px;
 }
 
-/* Library: list + optional detail column — 与侧栏 / dock 一致：单行分割，避免列表与详情各套一层灰框 */
+/* Library: list + optional detail — 主区白底通栏内分栏，仅用竖线分隔 */
 .library-layout {
   flex: 1;
   min-height: 0;
@@ -444,9 +450,9 @@ p {
   gap: 0;
   align-items: stretch;
   background: var(--surface);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -1036,7 +1042,6 @@ button.paper-item {
   min-height: 0;
   background: var(--surface);
   border-left: 1px solid var(--border);
-  box-shadow: -4px 0 24px rgba(15, 23, 42, 0.04);
   transition: opacity 0.18s ease, border-width 0.15s ease;
   overflow: hidden;
 }

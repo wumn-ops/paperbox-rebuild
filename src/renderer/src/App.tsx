@@ -1965,7 +1965,9 @@ export function App() {
       />
 
       <main className="main-stage">
-        <div className="main-stage-inner">
+        <div
+          className={mainView === 'settings' ? 'main-stage-inner main-stage-inner--settings' : 'main-stage-inner'}
+        >
           {mainView === 'settings' ? (
             <>
               <header className="workspace-header workspace-header--settings">
